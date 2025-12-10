@@ -16,6 +16,10 @@ import pygetwindow as gw
 # ==========================================================
 SERVICE_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
 CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
+# 标准设备名称特征值 UUID (Generic Access -> Device Name)
+# 用于心跳检测，因为所有 BLE 设备都有这个，且读取它不会影响业务逻辑
+STANDARD_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
+
 DEVICE_NAME_PREFIX = "Counter-"
 
 
@@ -42,7 +46,7 @@ class ScannerManager:
     self.scanner = None
     self.is_scanning = False
     self.found_devices = {}
-    self.device_ttl = 10.0
+    self.device_ttl = 8.0  # 缩短 TTL，让列表刷新更快
 
   def _detection_callback(self, device, advertisement_data):
     self.found_devices[device.address] = {
@@ -52,6 +56,8 @@ class ScannerManager:
   async def start(self):
     if self.is_scanning: return
     print("[Scanner] Starting background scan...")
+    # 每次启动扫描前先清理过期太久的缓存
+    self.get_active_devices()
     self.scanner = BleakScanner(detection_callback=self._detection_callback)
     await self.scanner.start()
     self.is_scanning = True
@@ -99,7 +105,7 @@ scanner_manager = ScannerManager()
 
 
 # ==========================================================
-# 核心业务类 (修复连接逻辑)
+# 核心业务类 (修复心跳与重连)
 # ==========================================================
 class HeadlessDeviceNode:
   def __init__(self, ble_device, on_data_callback, on_status_callback):
@@ -125,40 +131,42 @@ class HeadlessDeviceNode:
       await self.client.connect()
       print(f"Connected: {self.ble_device.name}")
 
-      # 【修复】移除报错的 get_services()
-      # 【优化】等待 1 秒让 Windows 蓝牙栈完成服务发现，防止 "Characteristic not found"
-      await asyncio.sleep(1.0)
+      # 【修复 1】等待服务发现，解决 Windows 缓存问题
+      await asyncio.sleep(1.5)
+
+      # 【修复 2】检查特征值是否存在
+      # 如果不存在，尝试读取标准设备名来"激活"服务列表
+      try:
+        await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
+      except Exception:
+        pass  # 忽略错误，只是为了刷新缓存
 
       # 开启通知
       await self.client.start_notify(CHARACTERISTIC_UUID, self._on_notify)
 
       self._emit_status("connected")
 
+      # 开启心跳
       if self._heartbeat_task: self._heartbeat_task.cancel()
       self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
       return True
+
     except Exception as e:
       print(f"Conn failed: {e}")
 
-      # 【调试】如果失败，打印出设备支持的所有 UUID，方便核对
+      # 打印调试信息
       try:
         if self.client and self.client.services:
-          print("--- Debug: Device Services ---")
+          print("--- Debug: Services Found ---")
           for s in self.client.services:
-            for c in s.characteristics:
-              print(f"   Char: {c.uuid} ({c.properties})")
-          print("------------------------------")
+            print(f"   Service: {s.uuid}")
+          print("-----------------------------")
       except:
         pass
 
-      # 失败后必须主动断开，释放设备
-      if self.client and self.client.is_connected:
-        print("Cleaning up failed connection...")
-        try:
-          await self.client.disconnect()
-        except:
-          pass
+      # 【关键】失败必须断开，否则设备卡死不广播
+      await self._ensure_disconnect()
 
       if not self.intentional_disconnect:
         self._trigger_reconnect()
@@ -167,23 +175,32 @@ class HeadlessDeviceNode:
       return False
 
   async def disconnect(self):
+    """用户主动断开"""
     self.intentional_disconnect = True
-
     if self._heartbeat_task:
       self._heartbeat_task.cancel()
       self._heartbeat_task = None
 
+    await self._ensure_disconnect()
+    self._emit_status("disconnected")
+
+  async def _ensure_disconnect(self):
+    """确保底层连接断开的辅助函数"""
     if self.client:
       try:
-        await self.client.disconnect()
-      except:
-        pass
-    self._emit_status("disconnected")
+        # 只有连接状态才需要断开
+        if self.client.is_connected:
+          print(f"Terminating connection to {self.ble_device.name}...")
+          await self.client.disconnect()
+      except Exception as e:
+        print(f"Disconnect error (ignored): {e}")
+      finally:
+        # 无论如何，清空 client 对象，防止残留
+        self.client = None
 
   def _on_disconnect(self, client):
     print(f"Disconnected callback: {self.ble_device.name}")
-    if self._heartbeat_task:
-      self._heartbeat_task.cancel()
+    if self._heartbeat_task: self._heartbeat_task.cancel()
 
     if not self.intentional_disconnect:
       self._trigger_reconnect()
@@ -193,30 +210,41 @@ class HeadlessDeviceNode:
   def _trigger_reconnect(self):
     if self.is_reconnecting: return
     self._emit_status("error")
-    print(f"Connection lost/failed! Starting auto-reconnect for {self.ble_device.name}...")
+    print(f"Connection lost! Auto-reconnect {self.ble_device.name}...")
     asyncio.create_task(self._reconnect_loop())
 
   async def _reconnect_loop(self):
     self.is_reconnecting = True
     while not self.intentional_disconnect:
-      print(f"Retrying connection to {self.ble_device.name} in 2s...")
-      await asyncio.sleep(2.0)
+      print(f"Retrying {self.ble_device.name} in 3s...")
+      await asyncio.sleep(3.0)  # 稍微放慢重连频率
+
+      # 如果用户在重连期间点了 Stop，立即停止
+      if self.intentional_disconnect: break
+
       if await self._do_connect():
-        print(f"Reconnection successful: {self.ble_device.name}")
+        print(f"Reconnected: {self.ble_device.name}")
         self.is_reconnecting = False
         return
     self.is_reconnecting = False
 
   async def _heartbeat_loop(self):
+    """心跳检测：每3秒读取一次设备名称"""
     try:
       while True:
         await asyncio.sleep(3)
-        if self.client and self.client.is_connected:
+        if self.client:  # 只要 client 还在就尝试检查
           try:
-            await self.client.get_rssi()
+            # 【修复 3】用读取标准特征值代替 get_rssi
+            await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
           except Exception as e:
-            print(f"Heartbeat failed ({e}), forcing disconnect...")
-            if self.client: await self.client.disconnect()
+            print(f"Heartbeat failed ({e}), active disconnect...")
+            # 心跳失败，说明链路已死，主动断开触发重连逻辑
+            await self._ensure_disconnect()
+            # _ensure_disconnect 可能会触发 _on_disconnect 回调
+            # 如果没触发，我们需要手动确保进入重连流程
+            if not self.intentional_disconnect:
+              self._trigger_reconnect()
             break
         else:
           break
@@ -228,7 +256,7 @@ class HeadlessDeviceNode:
       self.on_status_callback(status)
 
   async def send_reset(self):
-    if self.client and self.client.is_connected:
+    if self.client:  # 不检查 is_connected，让 bleak 自己抛异常
       try:
         await self.client.write_gatt_char(CHARACTERISTIC_UUID, b'\x01', response=True)
       except:
@@ -377,9 +405,14 @@ async def scan_devices(flush: bool = False):
 async def setup(config: dict):
   await scanner_manager.stop()
   global referees
+  # 强制清理：调用 disconnect 方法，确保 intentional_disconnect 被设置
+  cleanup_tasks = []
   for r in referees.values():
-    if r.pri_dev: await r.pri_dev.disconnect()
-    if r.sec_dev: await r.sec_dev.disconnect()
+    if r.pri_dev: cleanup_tasks.append(r.pri_dev.disconnect())
+    if r.sec_dev: cleanup_tasks.append(r.sec_dev.disconnect())
+  if cleanup_tasks:
+    await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+
   referees.clear()
 
   cached_map = {k: v['device'] for k, v in scanner_manager.found_devices.items()}
@@ -414,11 +447,15 @@ async def setup(config: dict):
 @app.post("/teardown")
 async def teardown():
   global referees
+  print("Teardown requested...")
   tasks = []
   for r in referees.values():
     if r.pri_dev: tasks.append(r.pri_dev.disconnect())
     if r.sec_dev: tasks.append(r.sec_dev.disconnect())
-  if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+
+  if tasks:
+    await asyncio.gather(*tasks, return_exceptions=True)
+
   referees.clear()
   await scanner_manager.start()
   return {"status": "ok"}
