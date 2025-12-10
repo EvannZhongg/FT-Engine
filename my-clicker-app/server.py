@@ -1,379 +1,435 @@
 import asyncio
-import json
+import time
+import struct
+from dataclasses import dataclass
+from typing import List, Dict, Optional
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from bleak import BleakScanner, BleakClient
 import pygetwindow as gw
-from typing import List, Dict, Optional
 
 # ==========================================================
-# 复用原项目配置 (Config & Protocol)
-# 假设这些文件在同级目录的 core/ 和 config.py 中
-# 如果没有，请手动复制相关常量到这里
+# 配置与协议
 # ==========================================================
-try:
-    from config import CHARACTERISTIC_UUID, DEVICE_NAME_PREFIX
-    from core.protocol import parse_notification_data
-except ImportError:
-    # 如果找不到文件，使用默认值作为 fallback
-    CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
-    DEVICE_NAME_PREFIX = "Counter-"
-    import struct
-    from dataclasses import dataclass
+SERVICE_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
+CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
+DEVICE_NAME_PREFIX = "Counter-"
 
 
-    @dataclass
-    class ClickerEvent:
-        current_total: int
-        event_type: int
-        total_plus: int
-        total_minus: int
-        timestamp_ms: int
+@dataclass
+class ClickerEvent:
+  current_total: int
+  event_type: int
+  total_plus: int
+  total_minus: int
+  timestamp_ms: int
 
 
-    def parse_notification_data(data: bytes) -> ClickerEvent:
-        STRUCT_FORMAT = "<ibiiI"
-        if len(data) != 17: raise ValueError("Data size mismatch")
-        unpacked = struct.unpack(STRUCT_FORMAT, data)
-        return ClickerEvent(*unpacked)
+def parse_notification_data(data: bytes) -> ClickerEvent:
+  STRUCT_FORMAT = "<ibiiI"
+  if len(data) != 17: raise ValueError("Data mismatch")
+  return ClickerEvent(*struct.unpack(STRUCT_FORMAT, data))
 
 
 # ==========================================================
-# 1. 重写无 PyQt 依赖的核心类 (Headless Classes)
+# 扫描管理器
 # ==========================================================
+class ScannerManager:
+  def __init__(self):
+    self.scanner = None
+    self.is_scanning = False
+    self.found_devices = {}
+    self.device_ttl = 10.0
 
+  def _detection_callback(self, device, advertisement_data):
+    self.found_devices[device.address] = {
+      "device": device, "adv": advertisement_data, "ts": time.time()
+    }
+
+  async def start(self):
+    if self.is_scanning: return
+    print("[Scanner] Starting background scan...")
+    self.scanner = BleakScanner(detection_callback=self._detection_callback)
+    await self.scanner.start()
+    self.is_scanning = True
+
+  async def stop(self):
+    if not self.is_scanning: return
+    print("[Scanner] Stopping background scan...")
+    try:
+      await self.scanner.stop()
+    except:
+      pass
+    self.scanner = None
+    self.is_scanning = False
+
+  def get_active_devices(self):
+    now = time.time()
+    expired = [k for k, v in self.found_devices.items() if now - v['ts'] > self.device_ttl]
+    for k in expired: del self.found_devices[k]
+
+    results = []
+    for entry in self.found_devices.values():
+      d, adv = entry['device'], entry['adv']
+      real_name = adv.local_name or d.name or "Unknown"
+      is_target = False
+
+      if real_name.startswith(DEVICE_NAME_PREFIX):
+        is_target = True
+      elif adv.service_uuids:
+        for u in adv.service_uuids:
+          if str(u).lower() == CHARACTERISTIC_UUID.lower():
+            is_target = True;
+            break
+
+      if is_target:
+        results.append({"name": real_name, "address": d.address, "rssi": adv.rssi})
+
+    results.sort(key=lambda x: x['rssi'], reverse=True)
+    return results
+
+  def clear_cache(self):
+    self.found_devices.clear()
+
+
+scanner_manager = ScannerManager()
+
+
+# ==========================================================
+# 核心业务类 (修复连接逻辑)
+# ==========================================================
 class HeadlessDeviceNode:
-    def __init__(self, ble_device, on_data_callback):
-        self.ble_device = ble_device
-        self.client = None
-        self.is_connected = False
-        self.on_data_callback = on_data_callback  # 回调函数替代 Signal
+  def __init__(self, ble_device, on_data_callback, on_status_callback):
+    self.ble_device = ble_device
+    self.client = None
+    self.on_data_callback = on_data_callback
+    self.on_status_callback = on_status_callback
 
-    async def connect(self):
-        print(f"Connecting to {self.ble_device.name}...")
+    self.intentional_disconnect = False
+    self.is_reconnecting = False
+    self._heartbeat_task = None
+
+  async def connect(self):
+    self.intentional_disconnect = False
+    return await self._do_connect()
+
+  async def _do_connect(self):
+    self._emit_status("connecting")
+    print(f"Connecting to {self.ble_device.name}...")
+
+    try:
+      self.client = BleakClient(self.ble_device, disconnected_callback=self._on_disconnect)
+      await self.client.connect()
+      print(f"Connected: {self.ble_device.name}")
+
+      # 【修复】移除报错的 get_services()
+      # 【优化】等待 1 秒让 Windows 蓝牙栈完成服务发现，防止 "Characteristic not found"
+      await asyncio.sleep(1.0)
+
+      # 开启通知
+      await self.client.start_notify(CHARACTERISTIC_UUID, self._on_notify)
+
+      self._emit_status("connected")
+
+      if self._heartbeat_task: self._heartbeat_task.cancel()
+      self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+      return True
+    except Exception as e:
+      print(f"Conn failed: {e}")
+
+      # 【调试】如果失败，打印出设备支持的所有 UUID，方便核对
+      try:
+        if self.client and self.client.services:
+          print("--- Debug: Device Services ---")
+          for s in self.client.services:
+            for c in s.characteristics:
+              print(f"   Char: {c.uuid} ({c.properties})")
+          print("------------------------------")
+      except:
+        pass
+
+      # 失败后必须主动断开，释放设备
+      if self.client and self.client.is_connected:
+        print("Cleaning up failed connection...")
         try:
-            self.client = BleakClient(self.ble_device, disconnected_callback=self._on_disconnected)
-            await self.client.connect()
-            self.is_connected = True
-            print(f"Connected: {self.ble_device.name}")
-            await self.client.start_notify(CHARACTERISTIC_UUID, self._notification_handler)
-            return True
-        except Exception as e:
-            print(f"Connection failed: {e}")
-            self.is_connected = False
-            return False
+          await self.client.disconnect()
+        except:
+          pass
 
-    async def disconnect(self):
+      if not self.intentional_disconnect:
+        self._trigger_reconnect()
+      else:
+        self._emit_status("disconnected")
+      return False
+
+  async def disconnect(self):
+    self.intentional_disconnect = True
+
+    if self._heartbeat_task:
+      self._heartbeat_task.cancel()
+      self._heartbeat_task = None
+
+    if self.client:
+      try:
+        await self.client.disconnect()
+      except:
+        pass
+    self._emit_status("disconnected")
+
+  def _on_disconnect(self, client):
+    print(f"Disconnected callback: {self.ble_device.name}")
+    if self._heartbeat_task:
+      self._heartbeat_task.cancel()
+
+    if not self.intentional_disconnect:
+      self._trigger_reconnect()
+    else:
+      self._emit_status("disconnected")
+
+  def _trigger_reconnect(self):
+    if self.is_reconnecting: return
+    self._emit_status("error")
+    print(f"Connection lost/failed! Starting auto-reconnect for {self.ble_device.name}...")
+    asyncio.create_task(self._reconnect_loop())
+
+  async def _reconnect_loop(self):
+    self.is_reconnecting = True
+    while not self.intentional_disconnect:
+      print(f"Retrying connection to {self.ble_device.name} in 2s...")
+      await asyncio.sleep(2.0)
+      if await self._do_connect():
+        print(f"Reconnection successful: {self.ble_device.name}")
+        self.is_reconnecting = False
+        return
+    self.is_reconnecting = False
+
+  async def _heartbeat_loop(self):
+    try:
+      while True:
+        await asyncio.sleep(3)
         if self.client and self.client.is_connected:
-            await self.client.disconnect()
-        self.is_connected = False
+          try:
+            await self.client.get_rssi()
+          except Exception as e:
+            print(f"Heartbeat failed ({e}), forcing disconnect...")
+            if self.client: await self.client.disconnect()
+            break
+        else:
+          break
+    except asyncio.CancelledError:
+      pass
 
-    def _on_disconnected(self, client):
-        self.is_connected = False
-        print(f"Disconnected: {self.ble_device.name}")
+  def _emit_status(self, status):
+    if self.on_status_callback:
+      self.on_status_callback(status)
 
-    async def send_reset_command(self):
-        if self.client and self.is_connected:
-            try:
-                await self.client.write_gatt_char(CHARACTERISTIC_UUID, b'\x01', response=True)
-                print(f"Reset sent to {self.ble_device.name}")
-            except Exception as e:
-                print(f"Reset failed: {e}")
+  async def send_reset(self):
+    if self.client and self.client.is_connected:
+      try:
+        await self.client.write_gatt_char(CHARACTERISTIC_UUID, b'\x01', response=True)
+      except:
+        pass
 
-    def _notification_handler(self, sender, data):
-        try:
-            event = parse_notification_data(data)
-            # 调用回调，将数据传给 Referee
-            if self.on_data_callback:
-                self.on_data_callback(
-                    event.current_total, event.event_type,
-                    event.total_plus, event.total_minus, event.timestamp_ms
-                )
-        except Exception as e:
-            print(f"Parse Error: {e}")
+  def _on_notify(self, sender, data):
+    try:
+      evt = parse_notification_data(data)
+      if self.on_data_callback:
+        self.on_data_callback(evt.current_total, evt.event_type, evt.total_plus, evt.total_minus, evt.timestamp_ms)
+    except:
+      pass
 
 
 class HeadlessReferee:
-    def __init__(self, index, name, mode="SINGLE", broadcast_func=None):
-        self.index = index
-        self.name = name
-        self.mode = mode
-        self.broadcast_func = broadcast_func  # 用于向 WebSocket 广播
+  def __init__(self, index, name, mode, broadcast_func):
+    self.index = index
+    self.name = name
+    self.mode = mode
+    self.broadcast = broadcast_func
+    self.pri_dev = None
+    self.sec_dev = None
+    self.score = {"total": 0, "plus": 0, "minus": 0}
+    self.pri_cache = [0, 0]
+    self.sec_cache = [0, 0]
+    self.status = {"pri": "disconnected", "sec": "disconnected" if mode == "DUAL" else "n/a"}
 
-        self.primary_device: Optional[HeadlessDeviceNode] = None
-        self.secondary_device: Optional[HeadlessDeviceNode] = None
+  def set_devices(self, pri, sec=None):
+    self.pri_dev = pri
+    if pri:
+      pri.on_data_callback = self._on_pri_data
+      pri.on_status_callback = lambda s: self._on_status_change("pri", s)
 
-        # 状态缓存
-        self.pri_plus = 0
-        self.pri_minus = 0
-        self.sec_plus = 0
-        self.sec_minus = 0
+    self.sec_dev = sec
+    if sec:
+      sec.on_data_callback = self._on_sec_data
+      sec.on_status_callback = lambda s: self._on_status_change("sec", s)
 
-        self.last_total = 0
-        self.last_plus = 0
-        self.last_minus = 0
+  async def reset(self):
+    t = []
+    if self.pri_dev: t.append(self.pri_dev.send_reset())
+    if self.sec_dev: t.append(self.sec_dev.send_reset())
+    if t: await asyncio.gather(*t, return_exceptions=True)
+    self.pri_cache = [0, 0];
+    self.sec_cache = [0, 0]
+    self._update_score()
 
-    def set_devices(self, primary_node, secondary_node=None):
-        self.primary_device = primary_node
-        if self.primary_device:
-            # 绑定回调
-            self.primary_device.on_data_callback = self._on_primary_data
+  def _on_status_change(self, role, status):
+    self.status[role] = status
+    self._broadcast_update("status_update")
 
-        if self.mode == "DUAL" and secondary_node:
-            self.secondary_device = secondary_node
-            self.secondary_device.on_data_callback = self._on_secondary_data
+  def _on_pri_data(self, cur, typ, p, m, ts):
+    self.pri_cache = [p, m]
+    self._update_score()
 
-    async def request_reset(self):
-        tasks = []
-        if self.primary_device: tasks.append(self.primary_device.send_reset_command())
-        if self.secondary_device: tasks.append(self.secondary_device.send_reset_command())
-        if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+  def _on_sec_data(self, cur, typ, p, m, ts):
+    self.sec_cache = [p, m]
+    self._update_score()
 
-        self.pri_plus = 0;
-        self.pri_minus = 0
-        self.sec_plus = 0;
-        self.sec_minus = 0
-        self._update_score_output()
+  def _update_score(self):
+    if self.mode == "SINGLE":
+      self.score = {"total": self.pri_cache[0] - self.pri_cache[1], "plus": self.pri_cache[0],
+                    "minus": self.pri_cache[1]}
+    else:
+      self.score = {
+        "total": self.pri_cache[0] - self.sec_cache[0],
+        "plus": self.pri_cache[0],
+        "minus": self.pri_cache[1] + self.sec_cache[1]
+      }
+    self._broadcast_update("score_update")
 
-    def _on_primary_data(self, current, evt_type, plus, minus, ts):
-        self.pri_plus = plus
-        self.pri_minus = minus
-        self._update_score_output()
-
-    def _on_secondary_data(self, current, evt_type, plus, minus, ts):
-        self.sec_plus = plus
-        self.sec_minus = minus
-        self._update_score_output()
-
-    def _update_score_output(self):
-        if self.mode == "SINGLE":
-            self.last_total = self.pri_plus - self.pri_minus
-            self.last_plus = self.pri_plus
-            self.last_minus = self.pri_minus
-        else:
-            # 双机模式逻辑：总分 = 主正 - 副正，重点扣分 = 主负 + 副负
-            self.last_total = self.pri_plus - self.sec_plus
-            self.last_plus = self.pri_plus
-            self.last_minus = self.pri_minus + self.sec_minus
-
-        # 触发广播
-        if self.broadcast_func:
-            data = {
-                "type": "score_update",
-                "payload": {
-                    "index": self.index,
-                    "total": self.last_total,
-                    "plus": self.last_plus,
-                    "minus": self.last_minus
-                }
-            }
-            asyncio.create_task(self.broadcast_func(data))
+  def _broadcast_update(self, msg_type):
+    payload = {
+      "index": self.index,
+      "score": self.score,
+      "status": self.status
+    }
+    asyncio.create_task(self.broadcast({"type": msg_type, "payload": payload}))
 
 
 # ==========================================================
-# 2. FastAPI 服务端定义
+# FastAPI 接口
 # ==========================================================
-
-app = FastAPI()
-
-# 允许跨域（Electron 前端可能需要）
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 全局状态
-active_websockets: List[WebSocket] = []
-referees: Dict[int, HeadlessReferee] = {}
-scanned_devices_cache = []
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+  await scanner_manager.start()
+  yield
+  await scanner_manager.stop()
 
 
-async def broadcast_message(message: dict):
-    """向所有连接的 WebSocket 客户端广播消息"""
-    for connection in active_websockets:
-        try:
-            await connection.send_json(message)
-        except WebSocketDisconnect:
-            active_websockets.remove(connection)
-        except Exception:
-            pass
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"],
+                   allow_headers=["*"])
+
+active_ws = []
+referees = {}
+
+
+async def broadcast_json(data):
+  for ws in active_ws:
+    try:
+      await ws.send_json(data)
+    except:
+      pass
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    active_websockets.append(websocket)
-    try:
-        while True:
-            # 保持连接，接收心跳或其他指令
-            data = await websocket.receive_text()
-            # 可以在这里处理来自前端的指令，如 "reset_1"
-    except WebSocketDisconnect:
-        active_websockets.remove(websocket)
+async def ws_endpoint(websocket: WebSocket):
+  await websocket.accept()
+  active_ws.append(websocket)
+  try:
+    while True: await websocket.receive_text()
+  except:
+    if websocket in active_ws: active_ws.remove(websocket)
 
 
 @app.websocket("/ws/tracking")
 async def tracking_endpoint(websocket: WebSocket):
-    """专门用于窗口吸附的 WebSocket"""
-    await websocket.accept()
-    try:
-        # 1. 接收前端发来的目标窗口标题
-        target_title = await websocket.receive_text()
-        print(f"Start tracking window: {target_title}")
-
-        while True:
-            # 2. 在线程中执行阻塞的 pygetwindow 调用
-            try:
-                # 使用 to_thread 防止阻塞 asyncio 循环
-                windows = await asyncio.to_thread(gw.getWindowsWithTitle, target_title)
-                if windows:
-                    win = windows[0]
-                    # 3. 发送坐标给前端
-                    await websocket.send_json({
-                        "found": True,
-                        "x": win.left,
-                        "y": win.top,
-                        "width": win.width,
-                        "height": win.height,
-                        "isActive": win.isActive
-                    })
-                else:
-                    await websocket.send_json({"found": False})
-            except Exception as e:
-                print(f"Tracking error: {e}")
-
-            await asyncio.sleep(0.05)  # 50ms 刷新率
-
-    except WebSocketDisconnect:
-        print("Tracking stopped")
-
-
-# --- HTTP 接口 ---
-
-@app.get("/scan")
-async def scan_devices():
-  """扫描蓝牙设备 (增强版：匹配名称和UUID)"""
-  print("Start scanning (Enhanced Mode)...")
-
-  # 【关键修改 1】return_adv=True 会返回广播数据，包含实时名称和 UUID
-  # 返回结构: { "address": (BLEDevice, AdvertisementData) }
-  devices_dict = await BleakScanner.discover(timeout=5.0, return_adv=True)
-
-  results = []
-  global scanned_devices_cache
-  scanned_devices_cache = []  # 清空缓存
-
-  print(f"Scanned {len(devices_dict)} raw devices.")
-
-  # 目标 UUID (用于备选匹配)
-  TARGET_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
-  TARGET_PREFIX = "Counter-"
-
-  for device, adv in devices_dict.values():
-    # 【关键修改 2】优先获取广播包里的实时名称 (local_name)，如果没有再取缓存名称
-    real_name = adv.local_name or device.name or "Unknown"
-
-    # 调试日志：打印每一个扫到的设备，方便你看有没有信号
-    print(f"  [Check] {real_name} <{device.address}>")
-    print(f"       Services: {adv.service_uuids}")
-
-    # 缓存设备对象 (连接时需要用到 device 对象，而不是 adv)
-    scanned_devices_cache.append(device)
-
-    # 【关键修改 3】双重匹配逻辑
-    # 条件 A: 名称以 Counter- 开头
-    match_name = real_name.startswith(TARGET_PREFIX)
-
-    # 条件 B: 广播的服务 UUID 列表里包含我们的目标 UUID (不区分大小写)
-    # 注意：有些设备广播的 UUID 是完整 128bit，有些是 16bit，这里做字符串包含检查
-    match_uuid = False
-    if adv.service_uuids:
-      for u in adv.service_uuids:
-        if str(u).lower() == TARGET_UUID.lower():
-          match_uuid = True
-          break
-
-    # 只要满足任一条件，就认为是我们的设备
-    if match_name or match_uuid:
-      print(f"       >>> MATCHED! (Name={match_name}, UUID={match_uuid})")
-      results.append({
-        "name": real_name,
-        "address": device.address,
-        "rssi": adv.rssi
-      })
-
-  # 按信号强度排序，体验更好
-  results.sort(key=lambda x: x['rssi'], reverse=True)
-
-  return {"devices": results}
-
-
-class RefereeConfig(dict):
-    # 简单的字典定义，用于接收 JSON
+  await websocket.accept()
+  try:
+    target = await websocket.receive_text()
+    while True:
+      try:
+        wins = await asyncio.to_thread(gw.getWindowsWithTitle, target)
+        if wins:
+          w = wins[0]
+          await websocket.send_json({"found": True, "x": w.left, "y": w.top, "width": w.width, "height": w.height})
+        else:
+          await websocket.send_json({"found": False})
+      except:
+        pass
+      await asyncio.sleep(0.05)
+  except:
     pass
 
 
+@app.get("/scan")
+async def scan_devices(flush: bool = False):
+  if flush:
+    scanner_manager.clear_cache()
+    await asyncio.sleep(1.5)
+  return {"devices": scanner_manager.get_active_devices()}
+
+
 @app.post("/setup")
-async def setup_referees(config: dict):
-    """
-    接收前端配置，初始化裁判和连接。
-    Config 示例:
-    {
-        "referees": [
-            {"index": 1, "name": "Ref1", "mode": "SINGLE", "pri_addr": "AA:BB:...", "sec_addr": ""}
-        ]
-    }
-    """
-    global referees
-    # 先清理旧连接
-    for ref in referees.values():
-        if ref.primary_device: await ref.primary_device.disconnect()
-        if ref.secondary_device: await ref.secondary_device.disconnect()
-    referees.clear()
+async def setup(config: dict):
+  await scanner_manager.stop()
+  global referees
+  for r in referees.values():
+    if r.pri_dev: await r.pri_dev.disconnect()
+    if r.sec_dev: await r.sec_dev.disconnect()
+  referees.clear()
 
-    # 创建新裁判
-    for item in config.get("referees", []):
-        idx = item.get("index")
-        r = HeadlessReferee(idx, item.get("name"), item.get("mode"), broadcast_message)
+  cached_map = {k: v['device'] for k, v in scanner_manager.found_devices.items()}
+  connect_tasks = []
 
-        # 查找设备对象
-        pri_addr = item.get("pri_addr")
-        sec_addr = item.get("sec_addr")
+  for item in config.get("referees", []):
+    idx = item.get("index")
+    r = HeadlessReferee(idx, item.get("name"), item.get("mode"), broadcast_json)
 
-        pri_dev = next((d for d in scanned_devices_cache if d.address == pri_addr), None)
-        sec_dev = next((d for d in scanned_devices_cache if d.address == sec_addr), None)
+    pri_dev = cached_map.get(item.get("pri_addr"))
+    sec_dev = cached_map.get(item.get("sec_addr"))
 
-        node_pri = None
-        node_sec = None
+    node_pri = None;
+    node_sec = None
+    if pri_dev:
+      node_pri = HeadlessDeviceNode(pri_dev, None, None)
+    if sec_dev and item.get("mode") == "DUAL":
+      node_sec = HeadlessDeviceNode(sec_dev, None, None)
 
-        if pri_dev:
-            node_pri = HeadlessDeviceNode(pri_dev, None)  # 回调在 set_devices 里绑定
-            # 异步连接
-            asyncio.create_task(node_pri.connect())
+    r.set_devices(node_pri, node_sec)
+    referees[idx] = r
 
-        if sec_dev and item.get("mode") == "DUAL":
-            node_sec = HeadlessDeviceNode(sec_dev, None)
-            asyncio.create_task(node_sec.connect())
+    if node_pri: connect_tasks.append(node_pri.connect())
+    if node_sec: connect_tasks.append(node_sec.connect())
 
-        r.set_devices(node_pri, node_sec)
-        referees[idx] = r
+  for coro in connect_tasks:
+    asyncio.create_task(coro)
 
-    return {"status": "ok", "message": f"Setup {len(referees)} referees"}
+  return {"status": "ok"}
+
+
+@app.post("/teardown")
+async def teardown():
+  global referees
+  tasks = []
+  for r in referees.values():
+    if r.pri_dev: tasks.append(r.pri_dev.disconnect())
+    if r.sec_dev: tasks.append(r.sec_dev.disconnect())
+  if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+  referees.clear()
+  await scanner_manager.start()
+  return {"status": "ok"}
 
 
 @app.post("/reset")
-async def reset_scores():
-    """重置所有裁判分数"""
-    tasks = [ref.request_reset() for ref in referees.values()]
-    if tasks:
-        await asyncio.gather(*tasks)
-    return {"status": "reset_done"}
+async def reset():
+  tasks = [r.reset() for r in referees.values()]
+  if tasks: await asyncio.gather(*tasks)
+  return {"status": "ok"}
 
 
 if __name__ == "__main__":
-    # 启动服务，端口 8000
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+  uvicorn.run(app, host="127.0.0.1", port=8000)
