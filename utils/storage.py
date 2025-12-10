@@ -1,240 +1,110 @@
-# utils/storage.py
 import os
-import json
 import csv
+import json
 from datetime import datetime
 
+# 基础数据存储路径
+BASE_DIR = os.path.join(os.getcwd(), "match_data")
 
-class ProjectStorage:
-    # ... (前部分保持不变: __init__, create_project 等) ...
-    def __init__(self, base_dir="projects"):
-        self.base_dir = os.path.join(os.getcwd(), base_dir)
-        if not os.path.exists(self.base_dir):
-            os.makedirs(self.base_dir)
+
+class StorageManager:
+    def __init__(self):
+        if not os.path.exists(BASE_DIR):
+            os.makedirs(BASE_DIR)
+
         self.current_project_path = None
+        # 移除文件句柄缓存，避免多组别切换时文件占用问题，改用每次写入打开关闭(性能对于计分系统足够)
 
-    def create_project(self, project_name, referees_data, tournament_data=None):
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    def create_project(self, project_name, mode):
+        """
+        创建项目文件夹
+        结构: match_data/{Timestamp}_{ProjectName}/
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 简单的文件名清洗，防止非法字符
         safe_name = "".join([c for c in project_name if c.isalnum() or c in (' ', '_', '-')]).strip()
-        folder_name = f"{timestamp_str}_{safe_name}"
+        folder_name = f"{timestamp}_{safe_name}"
 
-        self.current_project_path = os.path.join(self.base_dir, folder_name)
+        self.current_project_path = os.path.join(BASE_DIR, folder_name)
         os.makedirs(self.current_project_path, exist_ok=True)
 
+        # 初始化项目配置
         config = {
             "project_name": project_name,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "referees": referees_data,
-            "tournament_data": tournament_data or {}
+            "mode": mode,
+            "created_at": timestamp,
+            "groups": []
         }
+        self.save_config(config)
+        return config
 
-        self._write_config(config)
-        self._init_all_csvs(referees_data)
-        return self.current_project_path
-
-    def update_project_config(self, project_name, referees_data, tournament_data=None):
-        if not self.current_project_path or not os.path.exists(self.current_project_path):
-            return self.create_project(project_name, referees_data, tournament_data)
-
-        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        json_path = os.path.join(self.current_project_path, "config.json")
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    old_data = json.load(f)
-                    created_at = old_data.get("created_at", created_at)
-            except:
-                pass
-
-        config = {
-            "project_name": project_name,
-            "created_at": created_at,
-            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "referees": referees_data,
-            "tournament_data": tournament_data or {}
-        }
-        self._write_config(config)
-        self._init_all_csvs(referees_data)
-        return self.current_project_path
-
-    def _write_config(self, config):
+    def save_config(self, config_data):
         if not self.current_project_path: return
-        json_path = os.path.join(self.current_project_path, "config.json")
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+        path = os.path.join(self.current_project_path, "config.json")
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, ensure_ascii=False, indent=2)
 
-    def _init_all_csvs(self, referees_data):
-        for ref in referees_data:
-            csv_path = os.path.join(self.current_project_path, f"referee_{ref['index']}.csv")
-            if not os.path.exists(csv_path):
-                self._init_raw_log_csv(ref['index'])
-        if not os.path.exists(os.path.join(self.current_project_path, "results.csv")):
-            self._init_results_csv()
+    def _get_group_dir(self, group_name):
+        """获取(并创建)组别子文件夹"""
+        if not self.current_project_path or not group_name:
+            return self.current_project_path  # 以此防守，如果没有组名则存根目录
 
-    def _init_raw_log_csv(self, ref_index):
+        # 清洗组名防止路径穿越
+        safe_group = "".join([c for c in group_name if c.isalnum() or c in (' ', '_', '-')]).strip()
+        if not safe_group: safe_group = "Default_Group"
+
+        group_path = os.path.join(self.current_project_path, safe_group)
+        if not os.path.exists(group_path):
+            os.makedirs(group_path)
+        return group_path
+
+    def init_referee_log(self, group_name, ref_index, role):
+        """初始化日志文件 (写入表头)"""
         if not self.current_project_path: return
-        file_path = os.path.join(self.current_project_path, f"referee_{ref_index}.csv")
-        headers = ["SystemTime", "BLE_Timestamp", "DeviceRole", "Contestant", "CurrentTotal", "EventType", "TotalPlus",
-                   "TotalMinus"]
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            csv.writer(f).writerow(headers)
 
-    def _init_results_csv(self):
-        if not self.current_project_path: return
-        file_path = os.path.join(self.current_project_path, "results.csv")
-        headers = ["Group", "Contestant", "FinalScore", "Details", "Timestamp"]
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            csv.writer(f).writerow(headers)
+        group_dir = self._get_group_dir(group_name)
+        filename = f"referee_{ref_index}_{role}.csv"
+        filepath = os.path.join(group_dir, filename)
 
-    def log_data(self, ref_index, role, event_data, contestant_name=""):
-        if not self.current_project_path: return
-        file_path = os.path.join(self.current_project_path, f"referee_{ref_index}.csv")
-        current, evt_type, plus, minus, ble_ts = event_data
-        row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3], ble_ts, role, contestant_name, current, evt_type,
-               plus, minus]
-        try:
-            with open(file_path, 'a', newline='', encoding='utf-8') as f:
-                csv.writer(f).writerow(row)
-        except Exception as e:
-            print(f"CSV Log Error: {e}")
+        if not os.path.exists(filepath):
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "SystemTime", "BLE_Timestamp", "DeviceRole",
+                    "Contestant", "CurrentTotal", "EventType",
+                    "TotalPlus", "TotalMinus"
+                ])
+        return filepath
 
-    def save_result(self, group, contestant, total_score, details):
-        if not self.current_project_path: return
-        file_path = os.path.join(self.current_project_path, "results.csv")
-        row = [group, contestant, total_score, details, datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
-        try:
-            with open(file_path, 'a', newline='', encoding='utf-8') as f:
-                csv.writer(f).writerow(row)
-        except Exception as e:
-            print(f"Save Result Error: {e}")
-
-    # --- 数据读取方法 ---
-    def get_existing_contestants(self):
-        scored_set = set()
-        if not self.current_project_path: return scored_set
-        try:
-            file_path = os.path.join(self.current_project_path, "results.csv")
-            if os.path.exists(file_path):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        name = row.get("Contestant", "").strip()
-                        if name: scored_set.add(name)
-        except Exception:
-            pass
-        return scored_set
-
-    def get_project_results(self):
+    def log_data(self, group_name, ref_index, role, packet, contestant_name):
         """
-        读取 results.csv 并解析。
-        返回结构增加详细分数字段:
-        ref_scores = {
-            "Referee 1": {
-                "total": 100,
-                "plus": 120,
-                "minus": 20
-            },
-            ...
-        }
+        记录数据到: match_data/项目/组别/referee_x.csv
         """
-        results = []
-        if not self.current_project_path: return results
+        if not self.current_project_path: return
 
-        csv_path = os.path.join(self.current_project_path, "results.csv")
-        if not os.path.exists(csv_path): return results
+        # 1. 确保目录和文件存在
+        filepath = self.init_referee_log(group_name, ref_index, role)
 
+        # 2. 解析数据
+        current_total, event_type, total_plus, total_minus, ble_timestamp = packet
+        system_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+        # 3. 追加写入
         try:
-            with open(csv_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    details_str = row.get("Details", "")
-                    ref_scores = {}
-                    if details_str:
-                        # 分割每个裁判的数据 "Ref1=... | Ref2=..."
-                        parts = details_str.split('|')
-                        for p in parts:
-                            p = p.strip()
-                            if not p: continue
-
-                            # 解析逻辑
-                            r_name = "Unknown"
-                            r_total = 0
-                            r_plus = 0
-                            r_minus = 0
-
-                            try:
-                                # 新格式: Name=Total:Plus:Minus
-                                if '=' in p:
-                                    r_name, vals = p.split('=', 1)
-                                    val_parts = vals.split(':')
-                                    r_total = int(val_parts[0])
-                                    if len(val_parts) >= 3:
-                                        r_plus = int(val_parts[1])
-                                        r_minus = int(val_parts[2])
-                                    else:
-                                        # 兼容中间过渡格式
-                                        r_plus = r_total
-                                        r_minus = 0
-                                # 旧格式: Name:Total (可能会有bug如果名字里有冒号，但先这样兼容)
-                                elif ':' in p:
-                                    r_name, val = p.rsplit(':', 1)  # 从右边分，防止名字里有冒号
-                                    r_total = int(val)
-                                    r_plus = r_total
-                                    r_minus = 0
-
-                                ref_scores[r_name.strip()] = {
-                                    "total": r_total,
-                                    "plus": r_plus,
-                                    "minus": r_minus
-                                }
-                            except Exception as e:
-                                print(f"Parse error for part '{p}': {e}")
-
-                    results.append({
-                        "group": row.get("Group"),
-                        "contestant": row.get("Contestant"),
-                        "total_score": int(row.get("FinalScore", 0)),
-                        "ref_scores": ref_scores,  # 现在包含 dict 结构
-                        "timestamp": row.get("Timestamp")
-                    })
+            with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    system_time,
+                    ble_timestamp,
+                    role,
+                    contestant_name,
+                    current_total,
+                    event_type,
+                    total_plus,
+                    total_minus
+                ])
         except Exception as e:
-            print(f"Error reading results: {e}")
-
-        return results
-
-    def list_projects(self):
-        projects = []
-        if not os.path.exists(self.base_dir): return projects
-        for folder in os.listdir(self.base_dir):
-            folder_path = os.path.join(self.base_dir, folder)
-            config_path = os.path.join(folder_path, "config.json")
-            if os.path.isdir(folder_path) and os.path.exists(config_path):
-                try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        projects.append({
-                            "name": data.get("project_name", folder),
-                            "time": data.get("created_at", ""),
-                            "updated": data.get("updated_at", data.get("created_at", "")),
-                            "path": folder_path,
-                            "folder": folder
-                        })
-                except:
-                    pass
-        projects.sort(key=lambda x: x['updated'], reverse=True)
-        return projects
-
-    def load_project_config(self, folder_name):
-        path = os.path.join(self.base_dir, folder_name, "config.json")
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return None
-
-    def set_current_project(self, folder_name):
-        path = os.path.join(self.base_dir, folder_name)
-        if os.path.exists(path):
-            self.current_project_path = path
+            print(f"[Storage Error] {e}")
 
 
-storage = ProjectStorage()
+storage_manager = StorageManager()
