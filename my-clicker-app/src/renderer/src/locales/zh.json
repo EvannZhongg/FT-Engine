@@ -1,0 +1,21 @@
+{
+  "app_title": "电子计分系统",
+  "settings": "设置",
+  "language": "语言",
+  "home_welcome": "欢迎回来",
+  "home_subtitle": "准备好开始下一场比赛了吗？",
+  "btn_new_match": "新建比赛",
+  "btn_history": "历史记录",
+  "wiz_step1": "1. 基础设置",
+  "wiz_step2": "2. 绑定设备",
+  "wiz_proj_name": "项目名称",
+  "wiz_mode": "比赛模式",
+  "wiz_mode_free": "自由模式",
+  "wiz_mode_tourn": "赛事模式",
+  "wiz_ref_count": "裁判人数",
+  "btn_next": "下一步",
+  "btn_scan": "重新扫描",
+  "btn_start": "开始比赛",
+  "status_scanning": "正在扫描...",
+  "status_found": "找到 {count} 个设备"
+}

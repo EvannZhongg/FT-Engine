@@ -1,0 +1,21 @@
+{
+  "app_title": "Electronic Clicker",
+  "settings": "Settings",
+  "language": "Language",
+  "home_welcome": "Welcome Back",
+  "home_subtitle": "Ready for the next match?",
+  "btn_new_match": "New Match",
+  "btn_history": "History",
+  "wiz_step1": "1. Settings",
+  "wiz_step2": "2. Bind Devices",
+  "wiz_proj_name": "Project Name",
+  "wiz_mode": "Mode",
+  "wiz_mode_free": "Free Mode",
+  "wiz_mode_tourn": "Tournament",
+  "wiz_ref_count": "Referee Count",
+  "btn_next": "Next",
+  "btn_scan": "Rescan",
+  "btn_start": "Start Match",
+  "status_scanning": "Scanning...",
+  "status_found": "Found {count} devices"
+}
