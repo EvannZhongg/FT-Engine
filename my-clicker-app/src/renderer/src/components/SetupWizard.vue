@@ -61,6 +61,19 @@
         </div>
 
         <div class="main-edit" v-if="currentEditGroup">
+
+          <div class="edit-header">
+            <span class="edit-title">CONFIGURATION</span>
+            <button
+              class="btn-delete-group"
+              @click="deleteCurrentGroup"
+              v-if="groups.length > 1"
+              :title="$t('btn_del_group')"
+            >
+              <Trash2 :size="16" /> {{ $t('btn_del_group') }}
+            </button>
+          </div>
+
           <div class="form-group">
             <label>{{ $t('wiz_lbl_grp_name') }}</label>
             <input v-model="currentEditGroup.name" type="text" />
@@ -76,15 +89,13 @@
             <label>{{ $t('wiz_lbl_player') }}</label>
             <textarea
               v-model="currentEditGroup.rawPlayers"
-              rows="8"
+              rows="6"
               :placeholder="$t('wiz_ph_player')"
+              style="resize: vertical; min-height: 100px;"
             ></textarea>
           </div>
 
-          <div class="group-actions">
-            <button class="btn-danger" @click="deleteCurrentGroup" v-if="groups.length > 1">{{ $t('btn_del_group') }}</button>
           </div>
-        </div>
       </div>
 
       <div class="actions">
@@ -96,12 +107,14 @@
     <div v-if="currentStep === 3" class="step-content">
       <div class="scan-bar">
         <h2>{{ form.mode === 'TOURNAMENT' ? 'Step 3: ' : 'Step 2: ' }}{{ $t('wiz_s3_title') }}</h2>
+
         <div v-if="form.mode === 'TOURNAMENT'" class="target-group-select">
           <label>{{ $t('wiz_target_group') }}</label>
           <select v-model="selectedGroupToRun" @change="refreshBindingSlots">
             <option v-for="g in groups" :key="g.name" :value="g">{{ g.name }} ({{ g.refCount }} Refs)</option>
           </select>
         </div>
+
         <div class="scan-controls">
           <span v-if="isScanning" class="status scanning">{{ $t('status_scanning') }}</span>
           <span v-else class="status">{{ $t('status_found', { count: scannedDevices.length }) }}</span>
@@ -181,7 +194,8 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
-// import { useI18n } from 'vue-i18n'
+// 【新增】引入图标
+import { Trash2 } from 'lucide-vue-next'
 
 const emit = defineEmits(['cancel', 'finished'])
 const store = useRefereeStore()
@@ -189,64 +203,54 @@ const store = useRefereeStore()
 const currentStep = ref(1)
 const isScanning = ref(false)
 const scannedDevices = ref([])
-
-// 表单数据
 const form = reactive({
   projectName: 'New Match',
-  mode: 'FREE', // 【修改】默认改为 FREE
+  mode: 'FREE',
   refereeCount: 1
 })
-
-// 组别数据
 const groups = ref([])
 const currentEditGroup = ref(null)
-
-// 绑定数据
 const selectedGroupToRun = ref(null)
 const bindings = ref([])
 const isConnecting = ref(false)
 const showForceEntry = ref(false)
 let connectTimer = null
 
-const handleStep1Next = async () => {
-  // 1. 创建项目 (后端创建文件夹)
-  await store.createProject(form.projectName, form.mode)
+// --- Methods ---
 
-  // 2. 重置组别数据 (防止上次自由模式的数据残留)
+const handleStep1Next = async () => {
+  await store.createProject(form.projectName, form.mode)
   groups.value = []
   selectedGroupToRun.value = null
 
   if (form.mode === 'TOURNAMENT') {
-    // 赛事模式：进入 Step 2，并初始化一个空组供用户编辑
-    addNewGroup()
+    if (groups.value.length === 0) addNewGroup()
     currentStep.value = 2
   } else {
-    // 自由模式：自动创建一个名为 "Free Mode" 的特殊组别
-    // 这样后端存储路径就会变成: match_data/Project/Free Mode/xxx.csv
     const freeGroup = {
-      name: 'Free Mode', // 或者用 $t('wiz_mode_free')
-      refCount: form.refereeCount, // 使用 Step 1 输入的裁判数
-      rawPlayers: 'Player 1\nPlayer 2\nPlayer 3\nPlayer 4\nPlayer 5', // 预设一些选手
-      players: ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5']
+      name: 'Free Mode',
+      refCount: form.refereeCount,
+      rawPlayers: 'Player 1\nPlayer 2\nPlayer 3',
+      players: ['Player 1', 'Player 2', 'Player 3'],
+      referees: []
     }
-
     groups.value = [freeGroup]
-
-    // 立即保存组别信息到后端
     await store.updateGroups(groups.value)
-
-    // 自动选中该组，并准备进入设备绑定
     selectedGroupToRun.value = freeGroup
     refreshBindingSlots()
-
-    // 跳过 Step 2，直接进入 Step 3
     currentStep.value = 3
     if (scannedDevices.value.length === 0) startScan(false)
   }
 }
 
 const addNewGroup = () => {
-  const newG = { name: `Group ${groups.value.length + 1}`, refCount: 3, rawPlayers: '', players: [] }
+  const newG = {
+    name: `Group ${groups.value.length + 1}`,
+    refCount: 3,
+    rawPlayers: '',
+    players: [],
+    referees: []
+  }
   groups.value.push(newG)
   currentEditGroup.value = newG
 }
@@ -261,10 +265,14 @@ const deleteCurrentGroup = () => {
 
 const handleStep2Next = async () => {
   groups.value.forEach(g => {
-    g.players = g.rawPlayers.split('\n').map(p => p.trim()).filter(p => p !== '')
+    g.players = g.rawPlayers
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p !== '')
   })
   await store.updateGroups(groups.value)
   if (groups.value.length > 0) selectedGroupToRun.value = groups.value[0]
+
   refreshBindingSlots()
   currentStep.value = 3
   if (scannedDevices.value.length === 0) startScan(false)
@@ -272,9 +280,20 @@ const handleStep2Next = async () => {
 
 const refreshBindingSlots = () => {
   if (!selectedGroupToRun.value) return
-  bindings.value = Array.from({ length: selectedGroupToRun.value.refCount }, (_, i) => ({
-    index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', pri_addr: '', sec_addr: ''
-  }))
+  const targetGroup = selectedGroupToRun.value
+  const count = targetGroup.refCount
+
+  if (targetGroup.referees && targetGroup.referees.length === count) {
+    bindings.value = JSON.parse(JSON.stringify(targetGroup.referees))
+  } else {
+    bindings.value = Array.from({ length: count }, (_, i) => ({
+      index: i + 1,
+      name: `Referee ${i + 1}`,
+      mode: 'SINGLE',
+      pri_addr: '',
+      sec_addr: ''
+    }))
+  }
 }
 
 const startScan = async (isRefresh = true) => {
@@ -304,10 +323,8 @@ const onModeChange = (binding) => {
 
 const goBackFromStep3 = () => {
   if (form.mode === 'TOURNAMENT') {
-    // 赛事模式：正常返回组别管理
     currentStep.value = 2
   } else {
-    // 自由模式：返回 Step 1，并清空自动生成的组，防止污染
     groups.value = []
     selectedGroupToRun.value = null
     currentStep.value = 1
@@ -315,63 +332,479 @@ const goBackFromStep3 = () => {
 }
 
 const finishSetup = async () => {
+  if (selectedGroupToRun.value) {
+    selectedGroupToRun.value.referees = JSON.parse(JSON.stringify(bindings.value))
+    await store.updateGroups(groups.value)
+  }
+
   const groupName = selectedGroupToRun.value.name
   const firstPlayer = selectedGroupToRun.value.players[0] || "Player 1"
   await store.setMatchContext(groupName, firstPlayer)
   await store.startMatch({ referees: bindings.value })
+
   isConnecting.value = true
   showForceEntry.value = false
+
   const timeout = setTimeout(() => { showForceEntry.value = true }, 8000)
+
   connectTimer = setInterval(() => {
     if (checkAllConnected()) {
-      clearTimeout(timeout); clearInterval(connectTimer)
-      isConnecting.value = false; emit('finished')
+      clearTimeout(timeout)
+      clearInterval(connectTimer)
+      isConnecting.value = false
+      emit('finished')
     } else if (checkAnyError()) {
       showForceEntry.value = true
     }
   }, 500)
 }
 
-const getRefStatus = (index, role) => store.referees[index]?.status?.[role] || 'waiting'
+const getRefStatus = (index, role) => {
+  const r = store.referees[index]
+  if (!r || !r.status) return 'waiting'
+  return r.status[role]
+}
 
 const checkAllConnected = () => {
   for (const b of bindings.value) {
-    const s = store.referees[b.index]?.status
-    if (!s) return false
-    if (b.pri_addr && s.pri !== 'connected') return false
-    if (b.mode === 'DUAL' && b.sec_addr && s.sec !== 'connected') return false
+    const status = store.referees[b.index]?.status
+    if (!status) return false
+    if (b.pri_addr && status.pri !== 'connected') return false
+    if (b.mode === 'DUAL' && b.sec_addr && status.sec !== 'connected') return false
   }
   return true
 }
 
 const checkAnyError = () => {
   for (const b of bindings.value) {
-    const s = store.referees[b.index]?.status
-    if (s && (s.pri === 'error' || s.sec === 'error')) return true
+    const status = store.referees[b.index]?.status
+    if (status && (status.pri === 'error' || status.sec === 'error')) return true
   }
   return false
 }
 
-const cancelConnect = () => { clearInterval(connectTimer); isConnecting.value = false; store.stopMatch() }
-const confirmForceEnter = () => { clearInterval(connectTimer); isConnecting.value = false; emit('finished') }
+const cancelConnect = () => {
+  clearInterval(connectTimer)
+  isConnecting.value = false
+  store.stopMatch()
+}
+
+const confirmForceEnter = () => {
+  clearInterval(connectTimer)
+  isConnecting.value = false
+  emit('finished')
+}
 </script>
 
 <style scoped lang="scss">
-/* 样式与之前保持一致，篇幅原因省略部分重复CSS，功能不受影响 */
-.setup-wizard { padding: 30px; color: white; max-width: 900px; margin: 0 auto; }
-.steps-header { display: flex; align-items: center; margin-bottom: 30px; .step { font-size: 1.1rem; color: #666; font-weight: bold; &.active { color: #3498db; } } .divider { flex: 1; height: 1px; background: #333; margin: 0 15px; } }
-.step-content { animation: fadeIn 0.3s; h2 { margin-bottom: 20px; color: #eee; } }
-.form-group { margin-bottom: 20px; label { display: block; margin-bottom: 8px; color: #ccc; } input, textarea, select { width: 100%; padding: 10px; background: #252526; border: 1px solid #3d3d3d; color: white; border-radius: 4px; outline: none; &:focus { border-color: #3498db; } } .hint { color: #666; font-size: 0.8rem; margin-top: 4px; display: block; } }
-.radio-group { display: flex; gap: 20px; label { cursor: pointer; padding: 10px 20px; background: #252526; border: 1px solid #3d3d3d; border-radius: 4px; transition: all 0.2s; &.checked { background: #3498db; border-color: #3498db; } input { display: none; } } }
-.group-manager { .manager-layout { display: flex; gap: 20px; height: 400px; } .sidebar { width: 200px; background: #252526; border: 1px solid #3d3d3d; display: flex; flex-direction: column; .list-header { padding: 10px; background: #333; font-weight: bold; text-align: center; } .group-list { flex: 1; overflow-y: auto; } .group-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #333; &:hover { background: #2f2f2f; } &.active { background: #3498db; color: white; } } .btn-add-group { padding: 10px; background: #2ecc71; border: none; color: white; cursor: pointer; font-weight: bold; &:hover { background: #27ae60; } } } .main-edit { flex: 1; background: #252526; padding: 20px; border: 1px solid #3d3d3d; display: flex; flex-direction: column; .group-actions { margin-top: auto; text-align: right; } .btn-danger { background: #e74c3c; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; } } }
-.scan-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; .target-group-select { display: flex; align-items: center; gap: 10px; select { width: 200px; padding: 5px; } } }
-.device-list-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
-.ref-card { background: #252526; border: 1px solid #3d3d3d; border-radius: 6px; .card-header { background: #333; padding: 8px 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; .ref-name-input { width: 120px; padding: 2px 5px; font-size: 0.9rem; background: #222; border: 1px solid #444; } } .card-body { padding: 10px; } .row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; label { width: 70px; font-size: 0.85rem; color: #888; margin: 0; } select { width: 180px; padding: 4px; font-size: 0.9rem; } } }
-.actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #333; button { padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; &.btn-primary { background: #3498db; color: white; &:hover { background: #2980b9; } } &.btn-secondary { background: #555; color: white; &:hover { background: #666; } } &.btn-success { background: #2ecc71; color: white; &:hover { background: #27ae60; } } &.btn-scan { background: #f39c12; color: white; &:hover { background: #d35400; } } &:disabled { opacity: 0.5; cursor: not-allowed; } } }
-.overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-.connect-dialog { background: #252526; padding: 20px; width: 350px; border-radius: 8px; text-align: center; }
-.status-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; .tag { font-size: 0.8rem; padding: 2px 6px; border-radius: 3px; margin-left: 5px; &.connected { background: #27ae60; } &.connecting { background: #f39c12; } &.error { background: #c0392b; } &.waiting { background: #555; } } }
-.warn { color: #e74c3c; margin: 10px 0; }
-.dialog-actions { margin-top: 15px; button { margin: 0 5px; } }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.setup-wizard {
+  padding: 30px;
+  color: white;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.steps-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 30px;
+
+  .step {
+    font-size: 1.1rem;
+    color: #666;
+    font-weight: bold;
+
+    &.active {
+      color: #3498db;
+    }
+  }
+
+  .divider {
+    flex: 1;
+    height: 1px;
+    background: #333;
+    margin: 0 15px;
+  }
+}
+
+.step-content {
+  animation: fadeIn 0.3s;
+
+  h2 {
+    margin-bottom: 20px;
+    color: #eee;
+  }
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 20px;
+
+  label {
+    display: block;
+    margin-bottom: 8px;
+    color: #ccc;
+  }
+
+  input, textarea, select {
+    width: 100%;
+    padding: 10px;
+    background: #252526;
+    border: 1px solid #3d3d3d;
+    color: white;
+    border-radius: 4px;
+    outline: none;
+
+    &:focus {
+      border-color: #3498db;
+    }
+  }
+
+  .hint {
+    color: #666;
+    font-size: 0.8rem;
+    margin-top: 4px;
+    display: block;
+  }
+}
+
+.radio-group {
+  display: flex;
+  gap: 20px;
+
+  label {
+    cursor: pointer;
+    padding: 10px 20px;
+    background: #252526;
+    border: 1px solid #3d3d3d;
+    border-radius: 4px;
+    transition: all 0.2s;
+
+    &.checked {
+      background: #3498db;
+      border-color: #3498db;
+    }
+
+    input {
+      display: none;
+    }
+  }
+}
+
+/* Group Manager Layout */
+.group-manager {
+  .manager-layout {
+    display: flex;
+    gap: 20px;
+    height: 400px;
+  }
+
+  .sidebar {
+    width: 200px;
+    background: #252526;
+    border: 1px solid #3d3d3d;
+    display: flex;
+    flex-direction: column;
+
+    .list-header {
+      padding: 10px;
+      background: #333;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    .group-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .group-item {
+      padding: 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #333;
+
+      &:hover {
+        background: #2f2f2f;
+      }
+
+      &.active {
+        background: #3498db;
+        color: white;
+      }
+    }
+
+    .btn-add-group {
+      padding: 10px;
+      background: #2ecc71;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+
+      &:hover {
+        background: #27ae60;
+      }
+    }
+  }
+
+.main-edit {
+    flex: 1;
+    background: #252526;
+    padding: 20px;
+    border: 1px solid #3d3d3d;
+    display: flex;
+    flex-direction: column;
+
+    /* 【修改点 1】保持垂直滚动，强制隐藏水平滚动 */
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+}
+
+/* 【新增】编辑区域 Header 样式 */
+.edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #3d3d3d;
+}
+
+.edit-title {
+  font-weight: bold;
+  color: #888;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.btn-delete-group {
+  background: transparent;
+  border: 1px solid #c0392b;
+  color: #c0392b;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.btn-delete-group:hover {
+  background: #c0392b;
+  color: white;
+}
+
+/* Device Binding Styles */
+.scan-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+
+  .target-group-select {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    select {
+      width: 200px;
+      padding: 5px;
+    }
+  }
+}
+
+.device-list-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.ref-card {
+  background: #252526;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+
+  .card-header {
+    background: #333;
+    padding: 8px 12px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .ref-name-input {
+      width: 120px;
+      padding: 2px 5px;
+      font-size: 0.9rem;
+      background: #222;
+      border: 1px solid #444;
+    }
+  }
+
+  .card-body {
+    padding: 10px;
+  }
+
+  .row {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    label {
+      width: 70px;
+      font-size: 0.85rem;
+      color: #888;
+      margin: 0;
+    }
+
+    select {
+      width: 180px;
+      padding: 4px;
+      font-size: 0.9rem;
+    }
+  }
+}
+
+/* Action Buttons */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 15px;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #333;
+
+  button {
+    padding: 8px 20px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+
+    &.btn-primary {
+      background: #3498db;
+      color: white;
+
+      &:hover {
+        background: #2980b9;
+      }
+    }
+
+    &.btn-secondary {
+      background: #555;
+      color: white;
+
+      &:hover {
+        background: #666;
+      }
+    }
+
+    &.btn-success {
+      background: #2ecc71;
+      color: white;
+
+      &:hover {
+        background: #27ae60;
+      }
+    }
+
+    &.btn-scan {
+      background: #f39c12;
+      color: white;
+
+      &:hover {
+        background: #d35400;
+      }
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+
+/* Overlay */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.connect-dialog {
+  background: #252526;
+  padding: 20px;
+  width: 350px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 4px;
+
+  .tag {
+    font-size: 0.8rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 5px;
+
+    &.connected {
+      background: #27ae60;
+    }
+
+    &.connecting {
+      background: #f39c12;
+    }
+
+    &.error {
+      background: #c0392b;
+    }
+
+    &.waiting {
+      background: #555;
+    }
+  }
+}
+
+.warn {
+  color: #e74c3c;
+  margin: 10px 0;
+}
+
+.dialog-actions {
+  margin-top: 15px;
+
+  button {
+    margin: 0 5px;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 </style>
