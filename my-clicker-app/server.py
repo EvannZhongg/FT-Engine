@@ -604,14 +604,24 @@ async def get_projects_list():
 # 6. 加载历史项目 (用于 Continue Match)
 @app.post("/api/project/load")
 async def load_project(data: dict):
-    dir_name = data.get("dir_name")
-    config = storage_manager.load_project_config(dir_name)
-    if config:
-        match_state["config"] = config
-        # 恢复默认上下文，防止为空
-        match_state["current_group"] = config.get("groups", [{}])[0].get("name", "Unknown")
-        return {"status": "ok", "config": config}
-    return {"status": "error", "msg": "Project not found"}
+  dir_name = data.get("dir_name")
+  config = storage_manager.load_project_config(dir_name)
+
+  if config:
+    match_state["config"] = config
+
+    groups = config.get("groups", [])
+    if groups and len(groups) > 0:
+      # 如果有组，取第一个组名
+      match_state["current_group"] = groups[0].get("name", "Unknown")
+    else:
+      # 如果列表为空 (例如刚创建还没加组的空项目)，给个默认值
+      match_state["current_group"] = "Free Mode"
+    # --- 修复结束 ---
+
+    return {"status": "ok", "config": config}
+
+  return {"status": "error", "msg": "Project not found"}
 
 # 7. 获取报表数据 (用于 View Details)
 @app.post("/api/project/report")
