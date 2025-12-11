@@ -5,6 +5,8 @@ import icon from '../../resources/icon.png?asset'
 const { spawn } = require('child_process')
 
 let pyProc = null
+let mainWindow = null
+let overlayWindow = null
 
 // --- 1. 启动 Python 后端 ---
 const createPyProc = () => {
@@ -47,22 +49,16 @@ const exitPyProc = () => {
   }
 }
 
-// 【新增】用于存储进入悬浮模式前的窗口状态
-let savedWindowState = {
-  bounds: null,
-  isMaximized: false,
-  isFullScreen: false
-}
-
+// --- 3. 创建主窗口 (控制台) ---
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
     autoHideMenuBar: true,
     frame: false, // 无边框
-    transparent: true, // 【关键修改】开启透明窗口支持
-    hasShadow: false,  // 关闭阴影以避免透明模式下的边框残留
+    transparent: true, // 开启透明支持
+    hasShadow: false,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -80,85 +76,6 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  // --- IPC 监听：处理窗口控制 ---
-
-  // 1. 设置窗口置顶与全屏/位置 (用于悬浮模式切换)
-  ipcMain.on('set-overlay-mode', (event, { active, bounds }) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-
-    if (active) {
-      // === 进入悬浮模式 ===
-
-      // 1. 保存当前状态 (以便退出时恢复)
-      savedWindowState.isMaximized = win.isMaximized()
-      savedWindowState.isFullScreen = win.isFullScreen()
-      if (!savedWindowState.isMaximized && !savedWindowState.isFullScreen) {
-        savedWindowState.bounds = win.getBounds()
-      }
-
-      // 2. 调整窗口以吸附目标或全屏
-      if (bounds) {
-        // 如果有目标窗口坐标，移动并调整大小以吸附
-        win.setBounds(bounds)
-      } else {
-        // 否则全屏覆盖
-        const primaryDisplay = screen.getPrimaryDisplay()
-        const { width, height } = primaryDisplay.workAreaSize
-        win.setBounds({ x: 0, y: 0, width, height })
-      }
-
-      // 3. 设置置顶和隐藏任务栏
-      win.setAlwaysOnTop(true, 'screen-saver') // 确保在最顶层 (比普通置顶更高)
-      win.setSkipTaskbar(true) // 在任务栏隐藏
-
-    } else {
-      // === 退出悬浮模式 ===
-
-      // 1. 重置属性
-      win.setAlwaysOnTop(false)
-      win.setSkipTaskbar(false)
-
-      // 2. 恢复之前的窗口状态
-      if (savedWindowState.isFullScreen) {
-        win.setFullScreen(true)
-      } else if (savedWindowState.isMaximized) {
-        win.maximize()
-      } else if (savedWindowState.bounds) {
-        win.setBounds(savedWindowState.bounds)
-      } else {
-        // 如果没有保存的状态，恢复默认大小
-        win.setSize(900, 670)
-        win.center()
-      }
-    }
-  })
-
-  // 2. 鼠标穿透控制 (用于悬浮窗模式下点击背景穿透)
-  ipcMain.on('set-ignore-mouse', (event, ignore) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (win) {
-      if (ignore) {
-        // ignore = true: 鼠标穿透（点击会点到后面的窗口），forward = true 表示把事件转发给系统
-        win.setIgnoreMouseEvents(true, { forward: true })
-      } else {
-        // ignore = false: 鼠标不穿透（可以点击 Electron 窗口内的按钮/卡片）
-        win.setIgnoreMouseEvents(false)
-      }
-    }
-  })
-
-  // 3. 基础窗口控制 (最小化/关闭)
-  ipcMain.on('window-min', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    win.minimize()
-  })
-  ipcMain.on('window-close', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    win.close()
-  })
-
-
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -166,6 +83,7 @@ function createWindow() {
   }
 }
 
+// --- 4. 应用生命周期与 IPC 事件 ---
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
 
@@ -173,8 +91,115 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // 启动后台服务
   createPyProc()
+  // 创建主界面
   createWindow()
+
+  // === IPC 事件监听 ===
+
+  // 1. 打开悬浮窗 (支持参数：bounds, initialState)
+  ipcMain.on('open-overlay', (event, { bounds, initialState } = {}) => {
+    // 如果悬浮窗已存在，则聚焦，不重复创建
+    if (overlayWindow) {
+      overlayWindow.focus()
+      return
+    }
+
+    const primaryDisplay = screen.getPrimaryDisplay()
+    let winX = 0
+    let winY = 0
+    let winW = primaryDisplay.workAreaSize.width
+    let winH = primaryDisplay.workAreaSize.height
+
+    // 如果传递了 bounds，则应用 (实现“窗口匹配”功能)
+    if (bounds) {
+      winX = Math.round(bounds.x)
+      winY = Math.round(bounds.y)
+      winW = Math.round(bounds.width)
+      winH = Math.round(bounds.height)
+    }
+
+    overlayWindow = new BrowserWindow({
+      width: winW,
+      height: winH,
+      x: winX,
+      y: winY,
+      transparent: true,   // 透明背景
+      frame: false,        // 无边框
+      hasShadow: false,
+      fullscreen: false,   // 不强制独占全屏，方便覆盖在其他应用之上
+      alwaysOnTop: true,   // 始终置顶
+      skipTaskbar: true,   // 不显示在任务栏
+      resizable: true,     // 允许调整大小
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'), // 复用 preload
+        sandbox: false,
+        webSecurity: false
+      }
+    })
+
+    // 加载页面，带上 mode=overlay 参数
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      overlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?mode=overlay`)
+    } else {
+      overlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { search: 'mode=overlay' })
+    }
+
+    // 默认开启鼠标穿透 (点击背景透传)，配合 OverlayView 中的 set-ignore-mouse 使用
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+
+    // 【关键修复】窗口加载完成后，立即发送初始状态数据
+    overlayWindow.webContents.on('did-finish-load', () => {
+      if (initialState) {
+        // 通过 IPC 发送给 OverlayView.vue
+        overlayWindow.webContents.send('init-overlay-data', initialState)
+      }
+    })
+
+    // 处理关闭事件
+    overlayWindow.on('closed', () => {
+      overlayWindow = null
+      // 通知主窗口悬浮窗已关闭 (可选，用于UI状态更新)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('overlay-closed')
+      }
+    })
+  })
+
+  // 2. 关闭悬浮窗
+  ipcMain.on('close-overlay', () => {
+    if (overlayWindow) {
+      overlayWindow.close()
+    }
+  })
+
+  // 3. 鼠标穿透控制 (通用，适用于发送事件的窗口)
+  ipcMain.on('set-ignore-mouse', (event, ignore) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) {
+      if (ignore) {
+        // ignore = true: 鼠标穿透，forward = true 表示把事件转发给系统
+        win.setIgnoreMouseEvents(true, { forward: true })
+      } else {
+        // ignore = false: 鼠标不穿透 (可以点击按钮/卡片)
+        win.setIgnoreMouseEvents(false)
+        // 重新聚焦时确保置顶层级最高
+        win.setAlwaysOnTop(true, 'screen-saver')
+      }
+    }
+  })
+
+  // 4. 窗口控制 (最小化/关闭)
+  ipcMain.on('window-min', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) win.minimize()
+  })
+
+  ipcMain.on('window-close', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) win.close()
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
