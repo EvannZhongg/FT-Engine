@@ -596,6 +596,39 @@ async def get_window_bounds(data: dict):
     except Exception as e:
         return {"found": False}
 
+# 5. 获取项目列表
+@app.get("/api/projects/list")
+async def get_projects_list():
+    return {"projects": storage_manager.list_projects()}
+
+# 6. 加载历史项目 (用于 Continue Match)
+@app.post("/api/project/load")
+async def load_project(data: dict):
+    dir_name = data.get("dir_name")
+    config = storage_manager.load_project_config(dir_name)
+    if config:
+        match_state["config"] = config
+        # 恢复默认上下文，防止为空
+        match_state["current_group"] = config.get("groups", [{}])[0].get("name", "Unknown")
+        return {"status": "ok", "config": config}
+    return {"status": "error", "msg": "Project not found"}
+
+# 7. 获取报表数据 (用于 View Details)
+@app.post("/api/project/report")
+async def get_project_report(data: dict):
+    dir_name = data.get("dir_name")
+    # 1. 加载配置以获取组别结构
+    config = storage_manager.load_project_config(dir_name)
+    # 2. 加载分数数据
+    scores = storage_manager.load_report_data(dir_name)
+    return {"status": "ok", "config": config, "scores": scores}
+
+# 8. 获取当前组打分状态
+@app.post("/api/group/status")
+async def get_group_status(data: dict):
+    group_name = data.get("group")
+    scored_list = storage_manager.get_scored_players(group_name)
+    return {"status": "ok", "scored": scored_list}
 
 if __name__ == "__main__":
   uvicorn.run(app, host="127.0.0.1", port=8000)
