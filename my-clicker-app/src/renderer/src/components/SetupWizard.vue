@@ -1,3 +1,7 @@
+{
+type: uploaded file
+fileName: evannzhongg/electronic-referee/Electronic-Referee-226c47cd3e000a141997fb95897234e1b15eb59a/my-clicker-app/src/renderer/src/components/SetupWizard.vue
+fullContent:
 <template>
   <div class="setup-wizard">
     <div class="steps-header">
@@ -237,7 +241,6 @@ const handleStep1Next = async () => {
     if (form.mode === 'TOURNAMENT') {
       addNewGroup()
     } else {
-      // 【关键修改】自由模式初始化，只生成 Player 1
       const freeGroup = {
         name: 'Free Mode',
         refCount: form.refereeCount,
@@ -292,7 +295,13 @@ const handleStep2Next = async () => {
       .filter(p => p !== '')
   })
   await store.updateGroups(groups.value)
-  if (groups.value.length > 0) selectedGroupToRun.value = groups.value[0]
+
+  if (currentEditGroup.value) {
+    selectedGroupToRun.value = currentEditGroup.value
+  } else if (groups.value.length > 0) {
+    selectedGroupToRun.value = groups.value[0]
+  }
+
   refreshBindingSlots()
   currentStep.value = 3
   if (scannedDevices.value.length === 0) startScan(false)
@@ -361,12 +370,12 @@ const finishSetup = async () => {
   }
 
   const groupName = selectedGroupToRun.value.name
-  let firstPlayer = selectedGroupToRun.value.players[0] || "Player 1"
-  if (store.currentContext.contestantName && selectedGroupToRun.value.players.includes(store.currentContext.contestantName)) {
-      firstPlayer = store.currentContext.contestantName
-  }
 
-  await store.setMatchContext(groupName, firstPlayer)
+  // 【关键修改】在Setup连接测试阶段，设置选手名为空字符串
+  // 这样产生的测试数据日志（如Reset信号）其Contestant字段为空
+  // 后端统计scoredPlayers时会忽略空Contestant的记录，从而避免 Player 1 被误判为已打分
+  await store.setMatchContext(groupName, "")
+
   await store.startMatch({ referees: bindings.value })
 
   isConnecting.value = true
@@ -448,3 +457,4 @@ const confirmForceEnter = async () => {
 .dialog-actions { margin-top: 15px; button { margin: 0 5px; } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
+}

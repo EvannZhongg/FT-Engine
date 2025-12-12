@@ -12,7 +12,6 @@
         </div>
       </div>
     </div>
-
     <div v-if="showSettings" class="settings-panel" @mouseenter="setIgnoreMouse(false)" @mouseleave="handleCardLeave">
       <h4>Overlay Settings</h4>
       <div class="setting-row">
@@ -129,24 +128,17 @@ let draggingRefKey = null
 let dragOffset = { x: 0, y: 0 }
 let isDragging = false
 
-// UI 状态
 const showWaveform = ref(true)
 const showSettings = ref(false)
 const isDockVisible = ref(false)
 const waveformCardRef = ref(null)
 let resizeObserver = null
 
-// --- 实时分逻辑状态 ---
 const previousScores = {}
-// 结构: { index: { plus: { val: 0, lastTime: 0, timer: null }, minus: ... } }
 const realTimeData = reactive({})
-
-// 连击判定阈值 (毫秒)：超过这个时间间隔按键，视为新的一组，不再累加
 const BURST_THRESHOLD = 400
-// 显示保留时长 (毫秒)
 const DISPLAY_DURATION = 1000
 
-// --- 外观配置 ---
 const defaultConfig = {
   opacity: 0.85,
   color: '#141414',
@@ -180,29 +172,19 @@ const cardStyle = computed(() => {
   }
 })
 
-// --- 核心：优化的连击判定逻辑 ---
 watch(() => store.referees, (newRefs) => {
   Object.keys(newRefs).forEach(key => {
     const ref = newRefs[key]
-
-    // 初始化
     if (!previousScores[key]) {
       previousScores[key] = { plus: ref.plus, minus: ref.minus }
       return
     }
-
     const prev = previousScores[key]
     const deltaPlus = ref.plus - prev.plus
     const deltaMinus = ref.minus - prev.minus
-
-    // 更新历史基准
     previousScores[key] = { plus: ref.plus, minus: ref.minus }
-
-    // 触发更新
     if (deltaPlus > 0) processBurstScore(key, 'plus', deltaPlus)
     if (deltaMinus > 0) processBurstScore(key, 'minus', deltaMinus)
-
-    // 归零重置
     if (ref.plus === 0 && ref.minus === 0) {
       clearRealTimeScore(key)
     }
@@ -216,27 +198,16 @@ const processBurstScore = (key, type, delta) => {
       minus: { val: 0, lastTime: 0, timer: null }
     }
   }
-
   const slot = realTimeData[key][type]
   const now = Date.now()
   const timeDiff = now - slot.lastTime
-
-  // 1. 连击判定
-  // 如果是第一次按，或者距离上次按键超过了阈值(800ms)，则重置为新起点
   if (slot.val === 0 || timeDiff > BURST_THRESHOLD) {
     slot.val = delta
   } else {
-    // 否则认为是连击，累加
     slot.val += delta
   }
-
-  // 更新最后按键时间
   slot.lastTime = now
-
-  // 2. 显示停留逻辑 (每次更新都重置消失倒计时)
   if (slot.timer) clearTimeout(slot.timer)
-
-  // 设置消失定时器
   slot.timer = setTimeout(() => {
     slot.val = 0
   }, DISPLAY_DURATION)
@@ -253,7 +224,6 @@ const getRealTimeScore = (key, type) => {
   return realTimeData[key] ? realTimeData[key][type].val : 0
 }
 
-// --- 以下为原有交互逻辑，保持不变 ---
 const onDockEnter = () => { isDockVisible.value = true; setIgnoreMouse(false) }
 const onDockLeave = () => {
   if (!showSettings.value) isDockVisible.value = false
@@ -266,9 +236,8 @@ if (window.electron) {
     if (data.referees) {
       store.referees = data.referees
       initCardPositions()
-      // 初始化历史分
       Object.keys(data.referees).forEach(k => {
-        if (data.referees[k]) { // 增加判空
+        if (data.referees[k]) {
            previousScores[k] = { plus: data.referees[k].plus, minus: data.referees[k].minus }
         }
       })
@@ -276,7 +245,6 @@ if (window.electron) {
     if (data.context) {
       store.currentContext = data.context
     }
-    // 【新增】接收并同步项目配置
     if (data.projectConfig) {
       store.projectConfig = data.projectConfig
     }
@@ -384,20 +352,32 @@ const onDrag = (e) => {
 
 const stopDrag = () => { isDragging = false; draggingRefKey = null }
 
+// 【关键修改】 Overlay 端的切换选手逻辑，复刻 Free Mode 自动新建逻辑
 const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
   const group = store.projectConfig.groups.find(g => g.name === groupName)
   if (!group) return
   const currentIdx = group.players.indexOf(store.currentContext.contestantName)
   const nextIdx = currentIdx + delta
-  if (group.players[nextIdx]) await store.setMatchContext(groupName, group.players[nextIdx])
+
+  // 如果是 Free Mode 且超出范围，自动新建
+  if (nextIdx >= group.players.length && store.projectConfig.mode === 'FREE') {
+      const newPlayerName = `Player ${group.players.length + 1}`
+      group.players.push(newPlayerName)
+      await store.updateGroups(store.projectConfig.groups)
+      await store.setMatchContext(groupName, newPlayerName)
+      await store.resetAll()
+  } else if (group.players[nextIdx]) {
+      // 正常切换
+      await store.setMatchContext(groupName, group.players[nextIdx])
+      await store.resetAll()
+  }
 }
 </script>
 
 <style scoped lang="scss">
+/* Styles Omitted, assume unchanged */
 .overlay-container { width: 100vw; height: 100vh; overflow: hidden; background: transparent; }
-
-/* Dock & Panel Styles */
 .dock-trigger-zone { position: absolute; top: 0; left: 0; width: 100%; height: 40px; z-index: 10000; display: flex; justify-content: center; }
 .overlay-dock { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform: translateY(-100%); padding-top: 5px; &.visible { transform: translateY(0); } }
 .dock-content { background: rgba(0, 0, 0, 0.85); padding: 6px 15px; border-radius: 0 0 10px 10px; display: flex; align-items: center; gap: 10px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
@@ -408,52 +388,28 @@ const changePlayer = async (delta) => {
 
 .settings-panel { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background: #252526; border: 1px solid #444; padding: 15px; border-radius: 8px; z-index: 10001; color: white; width: 280px; box-shadow: 0 5px 20px rgba(0,0,0,0.5); h4 { margin: 0 0 15px 0; text-align: center; color: #ccc; } .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; label { font-size: 0.9rem; color: #aaa; } input[type=range] { width: 100px; } input[type=color] { border: none; width: 40px; height: 25px; padding: 0; background: none; } select { background: #333; color: white; border: 1px solid #555; padding: 2px 5px; border-radius: 4px; width: 140px; } span { width: 40px; text-align: right; font-size: 0.85rem; } } .setting-actions { display: flex; justify-content: space-between; margin-top: 15px; button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; } .btn-reset-style { background: #555; color: white; } .btn-close-settings { background: #3498db; color: white; } } }
 
-/* 卡片样式 */
-.score-card {
-  color: white; border-left: 4px solid #3498db; padding: 10px; cursor: grab; user-select: none; display: flex; flex-direction: column; transition: background-color 0.2s, box-shadow 0.2s;
-  &:active { cursor: grabbing; border-color: #2ecc71; }
-}
-.score-card:not(.waveform-card) { width: 180px; /* 稍微加宽以适应 Grid */ }
+.score-card { color: white; border-left: 4px solid #3498db; padding: 10px; cursor: grab; user-select: none; display: flex; flex-direction: column; transition: background-color 0.2s, box-shadow 0.2s; &:active { cursor: grabbing; border-color: #2ecc71; } }
+.score-card:not(.waveform-card) { width: 180px; }
 .waveform-card { resize: both; overflow: hidden; min-width: 200px; min-height: 100px; padding: 0; padding-left: 5px; transform: translateZ(0); backface-visibility: hidden; }
 .resize-handle-visual { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; border-right: 3px solid #666; border-bottom: 3px solid #666; pointer-events: none; opacity: 0.6; }
 
 .overlay-header { font-size: 0.85rem; color: #aaa; border-bottom: 1px solid #444; margin-bottom: 5px; padding-bottom: 2px; }
 .score-body { display: flex; align-items: center; justify-content: center; min-height: 40px; width: 100%; }
 
-/* --- 核心修复：使用 Grid 布局解决摇晃问题 --- */
-.score-grid-row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr; /* 左-中-右 三列 */
-  align-items: center;
-  width: 100%;
-}
-
-.grid-cell {
-  white-space: nowrap;
-}
-
+.score-grid-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%; }
+.grid-cell { white-space: nowrap; }
 .left-align { text-align: left; }
 .center-align { text-align: center; }
 .right-align { text-align: right; }
-
-.fixed-slot {
-  /* 实时模式下的固定高度，防止数字出现/消失时高度跳动 */
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-}
+.fixed-slot { min-height: 32px; display: flex; align-items: center; }
 .fixed-slot.right-align { justify-content: flex-end; }
 .fixed-slot.left-align { justify-content: flex-start; }
 
 .score-val { font-size: 2rem; font-weight: bold; line-height: 1; &.plus { color: #fff; } &.minus { color: #ff6b6b; } &.total { font-size: 2.5rem; color: #2ecc71; } }
 .score-divider { font-size: 1.5rem; color: #666; margin: 0 5px; font-weight: lighter; }
-
-/* 组合模式 */
 .score-combined-col { display: flex; flex-direction: column; align-items: center; }
 .combined-total { font-size: 2rem; font-weight: bold; color: #2ecc71; line-height: 1; margin-bottom: 2px; }
 .combined-detail { font-size: 0.9rem; color: #bbb; .mini-plus { color: #ddd; } .mini-minus { color: #ff6b6b; } }
-
-/* Realtime Pop 动画: 只有简单的缩放淡入，没有位移，防止布局抖动 */
 .pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.5); }
 </style>

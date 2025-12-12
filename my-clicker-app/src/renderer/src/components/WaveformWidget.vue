@@ -35,7 +35,7 @@ const store = useRefereeStore()
 const chartRef = ref(null)
 const isRecording = ref(false)
 const startTime = ref(null)
-// 【新增】等待归零锁
+// 等待归零锁：防止上一个选手的残留数据干扰，要求必须先收到0才能开始
 const waitForZero = ref(false)
 
 const COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22']
@@ -101,8 +101,13 @@ const initDatasets = () => {
 const resetChart = () => {
   isRecording.value = false
   startTime.value = null
-  // 【新增】重置时，开启归零锁，必须等到收到全0信号才允许下次开始
-  waitForZero.value = true
+
+  // 【关键修复】检查当前状态是否已经是归零状态
+  // 如果当前已经是全0（通常因为切换选手时触发了resetAll），则不需要等待归零信号
+  // 直接解锁，准备接收第一个非零信号
+  const allZero = Object.values(store.referees).every(r => r.total === 0)
+  waitForZero.value = !allZero
+
   initDatasets()
 }
 
@@ -162,15 +167,16 @@ watch(
   { deep: true }
 )
 
-// 切换选手 -> 重置图表并开启归零锁
+// 切换选手 -> 重置图表
 watch(() => store.currentContext.contestantName, (n, o) => {
   if (n !== o) resetChart()
 })
 
 onMounted(() => {
   initDatasets()
-  // 挂载时也默认开启等待归零，防止一打开悬浮窗就显示旧数据
-  waitForZero.value = true
+  // 挂载时初始检查
+  const allZero = Object.values(store.referees).every(r => r.total === 0)
+  waitForZero.value = !allZero
 })
 </script>
 

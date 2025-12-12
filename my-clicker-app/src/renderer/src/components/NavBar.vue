@@ -1,3 +1,7 @@
+{
+type: uploaded file
+fileName: evannzhongg/electronic-referee/Electronic-Referee-226c47cd3e000a141997fb95897234e1b15eb59a/my-clicker-app/src/renderer/src/components/NavBar.vue
+fullContent:
 <template>
   <div class="navbar-container">
     <div class="navbar">
@@ -7,7 +11,13 @@
       </div>
 
       <div class="right-area">
-        <button class="btn-icon settings-btn" @click="toggleSettings" title="Settings">
+        <button
+          ref="settingsBtnRef"
+          class="btn-icon settings-btn"
+          @click="toggleSettings"
+          title="Settings"
+          :class="{ active: showSettings }"
+        >
           <Settings :size="18" />
         </button>
 
@@ -23,7 +33,7 @@
     </div>
 
     <transition name="slide">
-      <div v-if="showSettings" class="settings-panel">
+      <div v-if="showSettings" ref="settingsPanelRef" class="settings-panel">
         <div class="setting-item">
           <label>{{ $t('language') }}</label>
           <select :value="$i18n.locale" @change="changeLanguage">
@@ -34,7 +44,17 @@
 
         <div class="setting-item">
           <label>Reset Shortcut</label>
-          <input type="text" value="Ctrl+G" readonly disabled />
+          <input
+            type="text"
+            :value="displayShortcut"
+            @keydown.prevent="handleRecordShortcut"
+            @focus="isRecording = true"
+            @blur="isRecording = false"
+            :placeholder="isRecording ? 'Press keys...' : 'Click to set'"
+            class="shortcut-input"
+            :class="{ recording: isRecording }"
+            readonly
+          />
         </div>
       </div>
     </transition>
@@ -42,41 +62,100 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { Settings, Minus, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
+import { useRefereeStore } from '../stores/refereeStore' // 引入 Store
 
 const { locale } = useI18n()
+const store = useRefereeStore() // 使用 Store
 const showSettings = ref(false)
 
-// 切换设置面板显示
+// Refs for click-outside detection
+const settingsPanelRef = ref(null)
+const settingsBtnRef = ref(null)
+
+const isRecording = ref(false)
+
+// 计算属性：显示当前快捷键或正在录制的状态
+const displayShortcut = computed(() => {
+  if (isRecording.value) return 'Press keys...'
+  return store.appSettings.reset_shortcut || 'Ctrl+G'
+})
+
+// 切换设置面板
 const toggleSettings = () => {
   showSettings.value = !showSettings.value
 }
 
-// 切换语言
-const changeLanguage = (event) => {
-  const newLang = event.target.value
-  locale.value = newLang
-  localStorage.setItem('lang', newLang) // 本地存储用户选择
-}
+// 核心逻辑：点击外部关闭
+const handleClickOutside = (event) => {
+  if (showSettings.value) {
+    const clickedInsidePanel = settingsPanelRef.value && settingsPanelRef.value.contains(event.target)
+    const clickedBtn = settingsBtnRef.value && settingsBtnRef.value.contains(event.target)
 
-// 最小化窗口
-const minimizeWindow = () => {
-  // 确保你的 preload/index.js 中暴露了 electron API (electron-vite 默认模板已包含)
-  if (window.electron && window.electron.ipcRenderer) {
-    window.electron.ipcRenderer.send('window-min')
-  } else {
-    console.warn('Electron IPC not available')
+    // 如果点击的既不是面板内部，也不是设置按钮本身，则关闭
+    if (!clickedInsidePanel && !clickedBtn) {
+      showSettings.value = false
+      isRecording.value = false // 同时也取消录制状态
+    }
   }
 }
 
-// 关闭窗口
+// 核心逻辑：录制快捷键
+const handleRecordShortcut = (e) => {
+  if (!isRecording.value) return
+
+  // 忽略单独按下的修饰键 (Ctrl, Shift, Alt)
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
+
+  const parts = []
+  if (e.ctrlKey) parts.push('Ctrl')
+  if (e.shiftKey) parts.push('Shift')
+  if (e.altKey) parts.push('Alt')
+
+  // 将 e.key (如 'g') 转为大写 'G'
+  let key = e.key.toUpperCase()
+  // 处理特殊键名映射 (可选)
+  if (key === ' ') key = 'Space'
+
+  parts.push(key)
+
+  const shortcutStr = parts.join('+')
+
+  // 保存到 Store
+  store.updateSetting('reset_shortcut', shortcutStr)
+
+  // 结束录制并失焦
+  isRecording.value = false
+  e.target.blur()
+}
+
+// 挂载全局监听器
+onMounted(() => {
+  window.addEventListener('mousedown', handleClickOutside)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('mousedown', handleClickOutside)
+})
+
+const changeLanguage = (event) => {
+  const newLang = event.target.value
+  locale.value = newLang
+  localStorage.setItem('lang', newLang)
+  store.updateSetting('language', newLang) // 同时也保存到后端配置
+}
+
+const minimizeWindow = () => {
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.send('window-min')
+  }
+}
+
 const closeWindow = () => {
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.send('window-close')
-  } else {
-    console.warn('Electron IPC not available')
   }
 }
 </script>
@@ -84,7 +163,7 @@ const closeWindow = () => {
 <style scoped lang="scss">
 .navbar-container {
   position: relative;
-  z-index: 1000; /* 确保在最上层 */
+  z-index: 1000;
 }
 
 .navbar {
@@ -94,7 +173,6 @@ const closeWindow = () => {
   height: 50px;
   background-color: #1e1e1e;
   padding-left: 20px;
-  /* 关键：整条栏允许拖拽窗口 */
   -webkit-app-region: drag;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   user-select: none;
@@ -107,18 +185,15 @@ const closeWindow = () => {
   color: #fff;
   font-weight: bold;
   font-size: 16px;
-  /* Logo区域也可以拖拽，无需特殊处理 */
 }
 
 .right-area {
   display: flex;
   align-items: center;
   height: 100%;
-  /* 关键：按钮区域必须设为不可拖拽，否则无法点击 */
   -webkit-app-region: no-drag;
 }
 
-/* 设置按钮样式 */
 .settings-btn {
   background: transparent;
   border: none;
@@ -131,24 +206,22 @@ const closeWindow = () => {
   align-items: center;
   transition: all 0.2s;
 
-  &:hover {
+  &:hover, &.active {
     background-color: rgba(255, 255, 255, 0.1);
     color: white;
   }
 }
 
-/* 窗口控制按钮容器 */
 .window-controls {
   display: flex;
   height: 100%;
 }
 
-/* 最小化/关闭按钮通用样式 */
 .win-btn {
   background: transparent;
   border: none;
   color: #ccc;
-  width: 46px; /* 足够宽的点击区域 */
+  width: 46px;
   height: 100%;
   display: flex;
   align-items: center;
@@ -162,17 +235,15 @@ const closeWindow = () => {
     color: white;
   }
 
-  /* 关闭按钮的特殊悬停样式（红色） */
   &.close-btn:hover {
     background-color: #e81123;
     color: white;
   }
 }
 
-/* 设置面板样式 */
 .settings-panel {
   position: absolute;
-  top: 50px; /* 紧贴导航栏下方 */
+  top: 50px;
   left: 0;
   right: 0;
   background-color: #252526;
@@ -207,14 +278,22 @@ const closeWindow = () => {
       }
     }
 
-    input[disabled] {
-      color: #777;
-      cursor: not-allowed;
+    /* 录制状态样式 */
+    .shortcut-input {
+      cursor: pointer;
+      text-align: center;
+      font-family: monospace;
+      font-weight: bold;
+
+      &.recording {
+        border-color: #e67e22;
+        color: #e67e22;
+        background: rgba(230, 126, 34, 0.1);
+      }
     }
   }
 }
 
-/* Vue Transition 动画 */
 .slide-enter-active,
 .slide-leave-active {
   transition: all 0.2s ease-out;
@@ -226,3 +305,4 @@ const closeWindow = () => {
   opacity: 0;
 }
 </style>
+}

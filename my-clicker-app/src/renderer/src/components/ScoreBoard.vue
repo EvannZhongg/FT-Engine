@@ -32,6 +32,7 @@
         <button class="btn-tool btn-overlay" @click="openWindowSelector">🔳 Overlay</button>
         <button class="btn-tool btn-reset" @click="handleNextClick">
             {{ isAllDone ? '🏁 Finish' : '⏭ Next' }}
+            <span class="shortcut-hint" v-if="store.appSettings.reset_shortcut">[{{ store.appSettings.reset_shortcut }}]</span>
         </button>
         <button class="btn-tool btn-reset-only" @click="handleResetOnly" title="Reset current only">⚠ Zero</button>
       </div>
@@ -121,28 +122,27 @@ const isAllDone = computed(() => currentGroupPlayers.value.length > 0 && current
 onMounted(async () => {
   store.connectWebSocket()
   store.fetchSettings()
+
   if (store.currentContext.groupName) {
+    if (!store.currentContext.contestantName && currentGroupPlayers.value.length > 0) {
+      await switchContext(currentGroupPlayers.value[0])
+    }
     await store.fetchScoredPlayers(store.currentContext.groupName)
     initResumeState()
   }
-  window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keydown', handleGlobalKeydown)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
-
-  // 组件卸载（退出页面）时，同步关闭悬浮窗
+  window.removeEventListener('keydown', handleGlobalKeydown)
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.send('close-overlay')
   }
 })
 
-// --- 核心：初始化与恢复逻辑 ---
 const initResumeState = async () => {
   if (isAllDone.value) {
     if (store.projectConfig.mode === 'FREE') {
-      // 【核心修改】自由模式下，如果全部已打分（例如从历史记录进入），直接定位到最后并创建新选手
-      // 如果 currentIdx 为 -1 (丢失上下文)，手动设为最后一位，确保 changePlayer(1) 能正确计算出 length
       if (currentIdx.value === -1 && currentGroupPlayers.value.length > 0) {
         store.currentContext.contestantName = currentGroupPlayers.value[currentGroupPlayers.value.length - 1]
       }
@@ -151,15 +151,13 @@ const initResumeState = async () => {
       showAllDoneDialog.value = true
     }
   } else {
-    // 寻找第一个未打分的选手
     const unscored = findNextUnscoredPlayer()
-    if (unscored) {
-      await switchContext(unscored)
+    if (unscored && unscored !== store.currentContext.contestantName) {
+       await switchContext(unscored)
     }
   }
 }
 
-// --- 核心：下一位逻辑 ---
 const handleNextClick = () => {
   if (store.appSettings.suppress_reset_confirm || isAutoNext.value) confirmSmartNext()
   else { dontAskAgainTemp.value = false; showResetDialog.value = true }
@@ -178,9 +176,7 @@ const confirmSmartNext = async () => {
     await switchContext(nextPlayer)
     await store.resetAll()
   } else {
-    // 全部已完成
     if (store.projectConfig.mode === 'FREE') {
-       // 自由模式：自动创建下一位
        await changePlayer(1)
        await store.resetAll()
     } else {
@@ -216,6 +212,7 @@ const continueLoopMatch = async () => {
 
 const finishMatch = () => { showAllDoneDialog.value = false; emit('stop') }
 
+// 【关键修改】统一切换选手逻辑，支持自由模式自动新建
 const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
   const group = store.projectConfig.groups.find(g => g.name === groupName)
@@ -224,33 +221,63 @@ const changePlayer = async (delta) => {
   const nextIdx = (currentIdx.value === -1 ? 0 : currentIdx.value) + delta
 
   if (nextIdx >= group.players.length) {
+    // 自由模式下，向后溢出则新建
     if (store.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
       await store.updateGroups(store.projectConfig.groups)
       await store.setMatchContext(groupName, newPlayerName)
+      // 切换到新选手并重置
+      await store.resetAll()
     }
-  } else {
-      const target = group.players[nextIdx >= 0 ? nextIdx : 0]
+    // 赛事模式下，不做循环，停在最后
+  } else if (nextIdx < 0) {
+      // 向前溢出，循环到最后一个
+      const target = group.players[group.players.length - 1]
       await store.setMatchContext(groupName, target)
+      await store.resetAll()
+  } else {
+      // 正常切换
+      const target = group.players[nextIdx]
+      await store.setMatchContext(groupName, target)
+      await store.resetAll()
   }
 }
 
 const switchContext = async (name) => { await store.setMatchContext(store.currentContext.groupName, name) }
 const handleResetOnly = async () => { if (confirm("Reset current scores to ZERO?")) await store.resetAll() }
+
+// 【关键修改】修复 manualChange，在自由模式向后切换时使用 changePlayer 以支持新建
 const manualChange = async (delta) => {
-    const players = currentGroupPlayers.value
-    if(players.length === 0) return
-    const nextIdx = (currentIdx.value + delta + players.length) % players.length
-    const nextPlayer = players[nextIdx]
-    await switchContext(nextPlayer)
-    await store.resetAll()
+    // 只有在自由模式下且是"下一个"时，使用 changePlayer 触发新建逻辑
+    if (store.projectConfig.mode === 'FREE' && delta > 0) {
+        await changePlayer(delta)
+    } else {
+        // 其他情况（如向前翻页，或赛事模式）保持原来的循环/列表逻辑
+        // 但为了统一体验，这里我们也统一调用 changePlayer 即可，因为 changePlayer 内部已经处理了边界
+        await changePlayer(delta)
+    }
 }
+
 const onSelectPlayer = async (e) => { await switchContext(e.target.value); await store.resetAll() }
-const handleKeydown = (e) => { if (e.ctrlKey && e.code === 'KeyG') { e.preventDefault(); handleNextClick() } }
+
+const handleGlobalKeydown = (e) => {
+  const shortcut = store.appSettings.reset_shortcut || "Ctrl+G"
+  const parts = shortcut.toUpperCase().split('+')
+  const needCtrl = parts.includes('CTRL')
+  const needShift = parts.includes('SHIFT')
+  const needAlt = parts.includes('ALT')
+  const keyPart = parts.find(p => !['CTRL', 'SHIFT', 'ALT'].includes(p))
+  if (!keyPart) return
+  const keyPressed = e.key.toUpperCase()
+  if (e.ctrlKey === needCtrl && e.shiftKey === needShift && e.altKey === needAlt && keyPressed === keyPart) {
+    e.preventDefault()
+    handleNextClick()
+  }
+}
+
 const openWindowSelector = async () => { windowList.value = await store.fetchWindows(); showWindowSelector.value = true }
 
-// 【核心修改】打开悬浮窗时传递完整 Project Config，确保 Next Player 功能正常
 const confirmOverlay = async () => {
   if (!selectedTargetWindow.value) return
   let targetBounds = null
@@ -260,7 +287,6 @@ const confirmOverlay = async () => {
     const initialState = {
       referees: JSON.parse(JSON.stringify(store.referees)),
       context: JSON.parse(JSON.stringify(store.currentContext)),
-      // 新增：传递项目配置
       projectConfig: JSON.parse(JSON.stringify(store.projectConfig))
     }
     window.electron.ipcRenderer.send('open-overlay', { bounds: targetBounds, initialState: initialState })
@@ -269,7 +295,7 @@ const confirmOverlay = async () => {
 </script>
 
 <style scoped lang="scss">
-/* 保持原有样式 */
+/* 保持原有样式，省略 */
 .score-board { height: 100%; display: flex; flex-direction: column; background: transparent; }
 .header { height: 70px; background: #252526; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); flex-shrink: 0; }
 .header-section { display: flex; align-items: center; gap: 10px; }
@@ -297,4 +323,5 @@ button { border: none; cursor: pointer; border-radius: 4px; transition: 0.2s; fo
 .large { width: 100%; margin-bottom: 10px; padding: 12px; font-size: 1rem; }
 .win-select { width: 100%; padding: 8px; margin: 15px 0; background: #111; color: white; border: 1px solid #444; }
 .dont-ask-label { display: block; margin-top: 15px; color: #aaa; cursor: pointer; input { margin-right: 5px; } }
+.shortcut-hint { font-size: 0.75rem; opacity: 0.8; font-weight: normal; margin-left: 4px; }
 </style>
