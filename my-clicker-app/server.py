@@ -4,6 +4,7 @@ import struct
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 from contextlib import asynccontextmanager
+from fastapi.responses import StreamingResponse
 
 import sys
 import os
@@ -23,7 +24,7 @@ import pygetwindow as gw
 # 引入配置模块
 from utils.app_settings import app_settings
 from utils.storage import storage_manager
-
+from utils.exporter import ExportManager
 # ==========================================================
 # 配置与协议
 # ==========================================================
@@ -398,7 +399,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 
 active_ws = []
 referees = {}
-
+export_manager = ExportManager(storage_manager)
 
 async def broadcast_json(data):
   for ws in active_ws:
@@ -639,6 +640,44 @@ async def get_group_status(data: dict):
     group_name = data.get("group")
     scored_list = storage_manager.get_scored_players(group_name)
     return {"status": "ok", "scored": scored_list}
+
+# 9. 删除项目
+@app.post("/api/project/delete")
+async def delete_project(data: dict):
+    dir_name = data.get("dir_name")
+    success = storage_manager.delete_project(dir_name)
+    if success:
+        return {"status": "ok"}
+    else:
+        return {"status": "error", "msg": "Failed to delete project"}
+
+
+@app.post("/api/export/details")
+async def export_details(data: dict):
+  """
+  导出详情压缩包
+  data: {
+    "group": "GroupA",
+    "players": ["P1", "P2"],
+    "options": { "txt": true, "srt": true, "srt_mode": "REALTIME" }
+  }
+  """
+  group_name = data.get("group")
+  players = data.get("players", [])
+  options = data.get("options", {})
+
+  # 在后台生成 ZIP
+  zip_io = await asyncio.to_thread(export_manager.generate_zip, group_name, players, options)
+
+  if not zip_io:
+    return {"status": "error", "msg": "No data found"}
+
+  # 返回流式响应
+  safe_name = "".join([c for c in group_name if c.isalnum() or c in (' ', '_', '-')]).strip()
+  headers = {
+    'Content-Disposition': f'attachment; filename="Details_{safe_name}.zip"'
+  }
+  return StreamingResponse(zip_io, media_type="application/zip", headers=headers)
 
 if __name__ == "__main__":
   uvicorn.run(app, host="127.0.0.1", port=8000)
