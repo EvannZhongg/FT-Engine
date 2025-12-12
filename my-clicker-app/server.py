@@ -549,8 +549,19 @@ async def update_groups(data: dict):
   if not match_state["config"]:
     return {"status": "error", "msg": "No active project"}
 
-  match_state["config"]["groups"] = data.get("groups", [])
+  groups = data.get("groups", [])
+  match_state["config"]["groups"] = groups
   storage_manager.save_config(match_state["config"])
+
+  # 【新增】广播最新的分组信息给所有客户端（主窗口、悬浮窗）
+  # 这样当一端新增选手时，另一端能同步收到列表更新
+  await broadcast_json({
+      "type": "groups_update",
+      "payload": {
+          "groups": groups
+      }
+  })
+
   return {"status": "ok"}
 
 
