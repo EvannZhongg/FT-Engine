@@ -1,7 +1,7 @@
 <template>
   <div class="report-view">
     <div class="sidebar">
-      <div class="sidebar-header">Groups</div>
+      <div class="sidebar-header">{{ $t('rpt_lbl_groups') }}</div>
       <div class="group-list">
         <div
           v-for="group in groups"
@@ -13,7 +13,7 @@
           {{ group.name }}
         </div>
       </div>
-      <button class="btn-back" @click="$emit('back')">← Back to List</button>
+      <button class="btn-back" @click="$emit('back')">{{ $t('rpt_btn_back') }}</button>
     </div>
 
     <div class="main-content" v-if="currentGroup">
@@ -21,23 +21,23 @@
         <div class="bar-left">
           <h2>{{ currentGroup.name }}</h2>
           <div v-if="viewMode === 'SCALED'" class="settings-inline">
-            <label>Ratio (%):</label>
+            <label>{{ $t('rpt_lbl_ratio') }}</label>
             <input type="number" v-model.number="scaleRatio" min="1" max="100">
           </div>
         </div>
 
         <div class="bar-right">
           <button class="btn-export-details" @click="openExportModal">
-            Export Details
+            {{ $t('rpt_btn_details') }}
           </button>
 
-          <button class="btn-export-csv" @click="exportCSV" title="Export Table CSV">
-            Table CSV
+          <button class="btn-export-csv" @click="exportCSV" :title="$t('rpt_btn_csv')">
+            {{ $t('rpt_btn_csv') }}
           </button>
 
           <div class="view-switcher">
-            <button :class="{ active: viewMode === 'SCALED' }" @click="viewMode = 'SCALED'">Scaled</button>
-            <button :class="{ active: viewMode === 'RAW' }" @click="viewMode = 'RAW'">Raw</button>
+            <button :class="{ active: viewMode === 'SCALED' }" @click="viewMode = 'SCALED'">{{ $t('rpt_view_scaled') }}</button>
+            <button :class="{ active: viewMode === 'RAW' }" @click="viewMode = 'RAW'">{{ $t('rpt_view_raw') }}</button>
           </div>
         </div>
       </div>
@@ -46,10 +46,10 @@
         <table class="striped-table">
           <thead>
             <tr>
-              <th width="60">Rank</th>
-              <th>Contestant</th>
-              <th v-for="i in currentGroup.refCount" :key="i">Ref {{ i }}</th>
-              <th>Final Score</th>
+              <th width="60">{{ $t('rpt_col_rank') }}</th>
+              <th>{{ $t('rpt_col_contestant') }}</th>
+              <th v-for="i in currentGroup.refCount" :key="i">{{ $t('rpt_col_ref') }} {{ i }}</th>
+              <th>{{ $t('rpt_col_final') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -69,9 +69,9 @@
         <table class="striped-table">
           <thead>
             <tr>
-              <th>Contestant</th>
-              <th v-for="i in currentGroup.refCount" :key="i">Referee {{ i }}</th>
-              <th>Average Score</th>
+              <th>{{ $t('rpt_col_contestant') }}</th>
+              <th v-for="i in currentGroup.refCount" :key="i">{{ $t('rpt_col_referee') }} {{ i }}</th>
+              <th>{{ $t('rpt_col_avg') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -95,14 +95,14 @@
 
     <div v-if="showExportModal" class="modal-overlay" @click.self="showExportModal = false">
       <div class="modal-content export-modal">
-        <h3>Export Score Details</h3>
+        <h3>{{ $t('rpt_title_export') }}</h3>
 
         <div class="modal-body-layout">
           <div class="section-players">
             <div class="section-header">
-              <span>Select Players ({{ selectedPlayers.length }})</span>
+              <span>{{ $t('rpt_lbl_sel_players') }} ({{ selectedPlayers.length }})</span>
               <label class="select-all-label">
-                <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll"> All
+                <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll"> {{ $t('rpt_lbl_all') }}
               </label>
             </div>
             <div class="player-scroll-list">
@@ -114,23 +114,23 @@
           </div>
 
           <div class="section-options">
-            <h4>Format Options</h4>
+            <h4>{{ $t('rpt_lbl_fmt') }}</h4>
             <div class="options-grid">
               <label class="opt-row">
                 <input type="checkbox" v-model="exportOpts.txt">
-                <span>TXT (Log)</span>
+                <span>{{ $t('rpt_opt_txt') }}</span>
               </label>
               <label class="opt-row">
                 <input type="checkbox" v-model="exportOpts.srt">
-                <span>SRT (Subtitle)</span>
+                <span>{{ $t('rpt_opt_srt') }}</span>
               </label>
 
               <div class="sub-opts" v-if="exportOpts.srt">
-                <label>SRT Mode:</label>
+                <label>{{ $t('rpt_lbl_srt_mode') }}</label>
                 <select v-model="exportOpts.srt_mode">
-                  <option value="TOTAL">Total Score</option>
-                  <option value="SPLIT">Plus / Minus</option>
-                  <option value="REALTIME">Real-time Burst</option>
+                  <option value="TOTAL">{{ $t('rpt_srt_total') }}</option>
+                  <option value="SPLIT">{{ $t('rpt_srt_split') }}</option>
+                  <option value="REALTIME">{{ $t('rpt_srt_burst') }}</option>
                 </select>
               </div>
             </div>
@@ -138,9 +138,9 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn-cancel" @click="showExportModal = false">Cancel</button>
+          <button class="btn-cancel" @click="showExportModal = false">{{ $t('btn_cancel') }}</button>
           <button class="btn-confirm" @click="confirmBatchExport" :disabled="selectedPlayers.length === 0">
-            Download ZIP
+            {{ $t('rpt_btn_dl_zip') }}
           </button>
         </div>
       </div>
@@ -151,10 +151,12 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps(['projectDir'])
 const emit = defineEmits(['back'])
 const store = useRefereeStore()
+const { t } = useI18n()
 
 const groups = ref([])
 const currentGroup = ref(null)
@@ -244,7 +246,6 @@ const sortedScaledRows = computed(() => {
 // --- 导出逻辑 ---
 
 const openExportModal = () => {
-  // 默认全选所有选手
   if (currentGroup.value) {
     selectedPlayers.value = [...currentGroup.value.players]
   }
@@ -276,7 +277,7 @@ const confirmBatchExport = async () => {
   if (success) {
     showExportModal.value = false
   } else {
-    alert("Export failed!")
+    alert(t('rpt_msg_fail'))
   }
 }
 
@@ -312,8 +313,6 @@ const exportCSV = () => {
       let line = [player]
       for(let i=1; i<=refCount; i++) {
         const d = getRawDetail(player, i)
-        // 简化 CSV 输出，使用类似 10 (+15/-5) 的格式？或者只输出总分
-        // 这里根据需求，为了处理方便，我们输出 Total。如果需要详情，建议用Details导出
         const t = d.total === '-' ? 0 : d.total
         line.push(t)
       }
@@ -335,101 +334,20 @@ const exportCSV = () => {
 </script>
 
 <style scoped lang="scss">
-/* 保持原有布局 */
+/* Style omitted - unchanged */
 .report-view { display: flex; height: 100%; color: white; background: #1e1e1e; }
-.sidebar {
-  width: 250px; background: #252526; border-right: 1px solid #333; display: flex; flex-direction: column;
-  .sidebar-header { padding: 20px; font-weight: bold; font-size: 1.2rem; border-bottom: 1px solid #333; }
-  .group-list { flex: 1; overflow-y: auto; }
-  .group-item { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2d2d2d; &:hover { background: #2d2d2d; } &.active { background: #3498db; color: white; } }
-  .btn-back { margin: 20px; padding: 10px; background: #444; border: none; color: #ccc; cursor: pointer; border-radius: 4px; &:hover { background: #555; } }
-}
+.sidebar { width: 250px; background: #252526; border-right: 1px solid #333; display: flex; flex-direction: column; .sidebar-header { padding: 20px; font-weight: bold; font-size: 1.2rem; border-bottom: 1px solid #333; } .group-list { flex: 1; overflow-y: auto; } .group-item { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2d2d2d; &:hover { background: #2d2d2d; } &.active { background: #3498db; color: white; } } .btn-back { margin: 20px; padding: 10px; background: #444; border: none; color: #ccc; cursor: pointer; border-radius: 4px; &:hover { background: #555; } } }
 .main-content { flex: 1; display: flex; flex-direction: column; padding: 20px; overflow: hidden; }
-
-/* 顶部栏 */
-.top-bar {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
-  background: #252526; padding: 10px 15px; border-radius: 6px; border: 1px solid #333;
-
-  .bar-left { display: flex; align-items: center; gap: 20px; h2 { margin: 0; font-size: 1.5rem; } }
-  .bar-right { display: flex; align-items: center; gap: 10px; }
-
-  .settings-inline {
-    display: flex; align-items: center; background: #333; padding: 4px 10px; border-radius: 4px;
-    label { margin-right: 8px; font-size: 0.9rem; color: #ccc; }
-    input { background: #111; border: 1px solid #555; color: white; padding: 4px; width: 60px; border-radius: 3px; }
-  }
-
-  .view-switcher {
-    display: flex; background: #333; border-radius: 4px; padding: 2px;
-    button {
-      background: transparent; border: none; color: #aaa; padding: 6px 15px; cursor: pointer; border-radius: 4px; font-weight: bold;
-      &.active { background: #3498db; color: white; }
-    }
-  }
-
-  button.btn-export-details {
-    background: #e67e22; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem;
-    &:hover { background: #d35400; }
-  }
-
-  button.btn-export-csv {
-    background: #27ae60; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem;
-    &:hover { background: #219150; }
-  }
-}
-
+.top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: #252526; padding: 10px 15px; border-radius: 6px; border: 1px solid #333; .bar-left { display: flex; align-items: center; gap: 20px; h2 { margin: 0; font-size: 1.5rem; } } .bar-right { display: flex; align-items: center; gap: 10px; } .settings-inline { display: flex; align-items: center; background: #333; padding: 4px 10px; border-radius: 4px; label { margin-right: 8px; font-size: 0.9rem; color: #ccc; } input { background: #111; border: 1px solid #555; color: white; padding: 4px; width: 60px; border-radius: 3px; } } .view-switcher { display: flex; background: #333; border-radius: 4px; padding: 2px; button { background: transparent; border: none; color: #aaa; padding: 6px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; &.active { background: #3498db; color: white; } } } button.btn-export-details { background: #e67e22; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; &:hover { background: #d35400; } } button.btn-export-csv { background: #27ae60; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; &:hover { background: #219150; } } }
 .table-container { flex: 1; overflow: auto; background: #252526; border-radius: 8px; padding: 10px; box-shadow: inset 0 0 20px rgba(0,0,0,0.2); }
-
 table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 600px; }
 th, td { text-align: center; padding: 12px 10px; border-bottom: 1px solid #333; }
 th { background: #333; position: sticky; top: 0; z-index: 10; color: #eee; }
-
 .striped-table tbody tr:nth-child(odd) { background-color: rgba(52, 152, 219, 0.08); &:hover { background-color: rgba(52, 152, 219, 0.15); } }
 .striped-table tbody tr:nth-child(even) { background-color: rgba(231, 76, 60, 0.08); &:hover { background-color: rgba(231, 76, 60, 0.15); } }
-
 .fixed-col { text-align: left; font-weight: bold; color: #ddd; border-right: 1px solid #333; background: inherit; }
 .highlight { color: #2ecc71; font-weight: bold; font-size: 1.1rem; }
-
-.score-cell {
-  display: flex; flex-direction: column; align-items: center;
-  .main-score { font-size: 1.1rem; font-weight: bold; color: white; }
-  .sub-score { font-size: 0.8rem; color: #aaa; margin-top: 2px; }
-  .plus { color: #aaa; }
-  .minus { color: #e74c3c; }
-}
-
-/* Modal Styles - Updated for Selection */
+.score-cell { display: flex; flex-direction: column; align-items: center; .main-score { font-size: 1.1rem; font-weight: bold; color: white; } .sub-score { font-size: 0.8rem; color: #aaa; margin-top: 2px; } .plus { color: #aaa; } .minus { color: #e74c3c; } }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
-.modal-content.export-modal {
-  background: #2b2b2b; padding: 25px; border-radius: 8px; width: 550px; color: white; display: flex; flex-direction: column;
-  h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; }
-
-  .modal-body-layout { display: flex; gap: 20px; height: 300px; }
-
-  /* 左侧：选手列表 */
-  .section-players {
-    flex: 1; display: flex; flex-direction: column; border-right: 1px solid #444; padding-right: 15px;
-    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.9rem; color: #aaa; }
-    .select-all-label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: #3498db; font-weight: bold; }
-    .player-scroll-list {
-      flex: 1; overflow-y: auto; background: #222; border: 1px solid #444; border-radius: 4px; padding: 5px;
-      .player-item-row { display: flex; align-items: center; padding: 5px 8px; cursor: pointer; &:hover { background: #333; } }
-      .p-name { margin-left: 8px; font-size: 0.9rem; }
-    }
-  }
-
-  /* 右侧：选项 */
-  .section-options {
-    width: 200px; padding-left: 5px;
-    h4 { margin: 0 0 15px 0; color: #ccc; font-size: 0.95rem; }
-    .options-grid { display: flex; flex-direction: column; gap: 15px; }
-    .opt-row { display: flex; align-items: center; gap: 10px; cursor: pointer; input { width: 18px; height: 18px; } }
-    .sub-opts { margin-left: 28px; display: flex; flex-direction: column; gap: 5px; select { background: #444; color: white; padding: 6px; border: 1px solid #666; border-radius: 4px; width: 100%; } }
-  }
-
-  .modal-actions { margin-top: 20px; border-top: 1px solid #444; padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px; }
-  .btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; &:disabled { background: #555; cursor: not-allowed; } }
-  .btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
-}
+.modal-content.export-modal { background: #2b2b2b; padding: 25px; border-radius: 8px; width: 550px; color: white; display: flex; flex-direction: column; h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; } .modal-body-layout { display: flex; gap: 20px; height: 300px; } .section-players { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #444; padding-right: 15px; .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.9rem; color: #aaa; } .select-all-label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: #3498db; font-weight: bold; } .player-scroll-list { flex: 1; overflow-y: auto; background: #222; border: 1px solid #444; border-radius: 4px; padding: 5px; .player-item-row { display: flex; align-items: center; padding: 5px 8px; cursor: pointer; &:hover { background: #333; } } .p-name { margin-left: 8px; font-size: 0.9rem; } } } .section-options { width: 200px; padding-left: 5px; h4 { margin: 0 0 15px 0; color: #ccc; font-size: 0.95rem; } .options-grid { display: flex; flex-direction: column; gap: 15px; } .opt-row { display: flex; align-items: center; gap: 10px; cursor: pointer; input { width: 18px; height: 18px; } } .sub-opts { margin-left: 28px; display: flex; flex-direction: column; gap: 5px; select { background: #444; color: white; padding: 6px; border: 1px solid #666; border-radius: 4px; width: 100%; } } } .modal-actions { margin-top: 20px; border-top: 1px solid #444; padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px; } .btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; &:disabled { background: #555; cursor: not-allowed; } } .btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; } }
 </style>

@@ -1,7 +1,3 @@
-{
-type: uploaded file
-fileName: evannzhongg/electronic-referee/Electronic-Referee-226c47cd3e000a141997fb95897234e1b15eb59a/my-clicker-app/src/renderer/src/components/NavBar.vue
-fullContent:
 <template>
   <div class="navbar-container">
     <div class="navbar">
@@ -15,17 +11,17 @@ fullContent:
           ref="settingsBtnRef"
           class="btn-icon settings-btn"
           @click="toggleSettings"
-          title="Settings"
+          :title="$t('nav_settings')"
           :class="{ active: showSettings }"
         >
           <Settings :size="18" />
         </button>
 
         <div class="window-controls">
-          <button class="win-btn" @click="minimizeWindow" title="Minimize">
+          <button class="win-btn" @click="minimizeWindow" :title="$t('nav_minimize')">
             <Minus :size="16" />
           </button>
-          <button class="win-btn close-btn" @click="closeWindow" title="Close">
+          <button class="win-btn close-btn" @click="closeWindow" :title="$t('nav_close')">
             <X :size="16" />
           </button>
         </div>
@@ -43,14 +39,14 @@ fullContent:
         </div>
 
         <div class="setting-item">
-          <label>Reset Shortcut</label>
+          <label>{{ $t('nav_reset_shortcut') }}</label>
           <input
             type="text"
             :value="displayShortcut"
             @keydown.prevent="handleRecordShortcut"
             @focus="isRecording = true"
             @blur="isRecording = false"
-            :placeholder="isRecording ? 'Press keys...' : 'Click to set'"
+            :placeholder="isRecording ? $t('nav_press_keys') : $t('nav_click_set')"
             class="shortcut-input"
             :class="{ recording: isRecording }"
             readonly
@@ -65,10 +61,10 @@ fullContent:
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { Settings, Minus, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { useRefereeStore } from '../stores/refereeStore' // 引入 Store
+import { useRefereeStore } from '../stores/refereeStore'
 
-const { locale } = useI18n()
-const store = useRefereeStore() // 使用 Store
+const { locale, t } = useI18n() // Add t for JS usage if needed
+const store = useRefereeStore()
 const showSettings = ref(false)
 
 // Refs for click-outside detection
@@ -79,7 +75,7 @@ const isRecording = ref(false)
 
 // 计算属性：显示当前快捷键或正在录制的状态
 const displayShortcut = computed(() => {
-  if (isRecording.value) return 'Press keys...'
+  if (isRecording.value) return t('nav_press_keys')
   return store.appSettings.reset_shortcut || 'Ctrl+G'
 })
 
@@ -161,148 +157,15 @@ const closeWindow = () => {
 </script>
 
 <style scoped lang="scss">
-.navbar-container {
-  position: relative;
-  z-index: 1000;
-}
-
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 50px;
-  background-color: #1e1e1e;
-  padding-left: 20px;
-  -webkit-app-region: drag;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  user-select: none;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #fff;
-  font-weight: bold;
-  font-size: 16px;
-}
-
-.right-area {
-  display: flex;
-  align-items: center;
-  height: 100%;
-  -webkit-app-region: no-drag;
-}
-
-.settings-btn {
-  background: transparent;
-  border: none;
-  color: #ccc;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 4px;
-  margin-right: 15px;
-  display: flex;
-  align-items: center;
-  transition: all 0.2s;
-
-  &:hover, &.active {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: white;
-  }
-}
-
-.window-controls {
-  display: flex;
-  height: 100%;
-}
-
-.win-btn {
-  background: transparent;
-  border: none;
-  color: #ccc;
-  width: 46px;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
-  outline: none;
-
-  &:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: white;
-  }
-
-  &.close-btn:hover {
-    background-color: #e81123;
-    color: white;
-  }
-}
-
-.settings-panel {
-  position: absolute;
-  top: 50px;
-  left: 0;
-  right: 0;
-  background-color: #252526;
-  padding: 20px;
-  border-bottom: 1px solid #333;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-
-  .setting-item {
-    display: flex;
-    align-items: center;
-    margin-bottom: 15px;
-    color: #ccc;
-
-    label {
-      width: 150px;
-      font-size: 14px;
-    }
-
-    select,
-    input {
-      background: #3c3c3c;
-      border: 1px solid #555;
-      color: white;
-      padding: 6px 10px;
-      border-radius: 4px;
-      flex: 1;
-      max-width: 200px;
-      outline: none;
-
-      &:focus {
-        border-color: #3498db;
-      }
-    }
-
-    /* 录制状态样式 */
-    .shortcut-input {
-      cursor: pointer;
-      text-align: center;
-      font-family: monospace;
-      font-weight: bold;
-
-      &.recording {
-        border-color: #e67e22;
-        color: #e67e22;
-        background: rgba(230, 126, 34, 0.1);
-      }
-    }
-  }
-}
-
-.slide-enter-active,
-.slide-leave-active {
-  transition: all 0.2s ease-out;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  transform: translateY(-10px);
-  opacity: 0;
-}
+/* Style omitted - unchanged */
+.navbar-container { position: relative; z-index: 1000; }
+.navbar { display: flex; justify-content: space-between; align-items: center; height: 50px; background-color: #1e1e1e; padding-left: 20px; -webkit-app-region: drag; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); user-select: none; }
+.brand { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: bold; font-size: 16px; }
+.right-area { display: flex; align-items: center; height: 100%; -webkit-app-region: no-drag; }
+.settings-btn { background: transparent; border: none; color: #ccc; cursor: pointer; padding: 8px; border-radius: 4px; margin-right: 15px; display: flex; align-items: center; transition: all 0.2s; &:hover, &.active { background-color: rgba(255, 255, 255, 0.1); color: white; } }
+.window-controls { display: flex; height: 100%; }
+.win-btn { background: transparent; border: none; color: #ccc; width: 46px; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s, color 0.2s; outline: none; &:hover { background-color: rgba(255, 255, 255, 0.1); color: white; } &.close-btn:hover { background-color: #e81123; color: white; } }
+.settings-panel { position: absolute; top: 50px; left: 0; right: 0; background-color: #252526; padding: 20px; border-bottom: 1px solid #333; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3); .setting-item { display: flex; align-items: center; margin-bottom: 15px; color: #ccc; label { width: 150px; font-size: 14px; } select, input { background: #3c3c3c; border: 1px solid #555; color: white; padding: 6px 10px; border-radius: 4px; flex: 1; max-width: 200px; outline: none; &:focus { border-color: #3498db; } } .shortcut-input { cursor: pointer; text-align: center; font-family: monospace; font-weight: bold; &.recording { border-color: #e67e22; color: #e67e22; background: rgba(230, 126, 34, 0.1); } } } }
+.slide-enter-active, .slide-leave-active { transition: all 0.2s ease-out; }
+.slide-enter-from, .slide-leave-to { transform: translateY(-10px); opacity: 0; }
 </style>
-}

@@ -3,7 +3,7 @@
     <div class="header">
       <div class="header-section left">
         <button class="btn-stop" @click="$emit('stop')">
-          <span class="icon">←</span> Stop
+          <span class="icon">←</span> {{ $t('sb_btn_stop') }}
         </button>
       </div>
       <div class="header-section center">
@@ -24,17 +24,17 @@
         </div>
       </div>
       <div class="header-section right">
-        <div class="toggle-switch" title="Auto Next">
+        <div class="toggle-switch" :title="$t('chk_auto_next')">
           <input type="checkbox" id="autoSwitch" v-model="isAutoNext">
           <label for="autoSwitch" class="toggle-label"><span class="toggle-switch-handle"></span></label>
-          <span class="toggle-text">Auto</span>
+          <span class="toggle-text">{{ $t('sb_lbl_auto') }}</span>
         </div>
-        <button class="btn-tool btn-overlay" @click="openWindowSelector">🔳 Overlay</button>
+        <button class="btn-tool btn-overlay" @click="openWindowSelector">🔳 {{ $t('sb_btn_overlay') }}</button>
         <button class="btn-tool btn-reset" @click="handleNextClick">
-            {{ isAllDone ? '🏁 Finish' : '⏭ Next' }}
+            {{ isAllDone ? '🏁 ' + $t('sb_btn_finish') : '⏭ ' + $t('sb_btn_next') }}
             <span class="shortcut-hint" v-if="store.appSettings.reset_shortcut">[{{ store.appSettings.reset_shortcut }}]</span>
         </button>
-        <button class="btn-tool btn-reset-only" @click="handleResetOnly" title="Reset current only">⚠ Zero</button>
+        <button class="btn-tool btn-reset-only" @click="handleResetOnly" :title="$t('sb_btn_zero')">⚠ {{ $t('sb_btn_zero') }}</button>
       </div>
     </div>
 
@@ -54,40 +54,40 @@
 
     <div v-if="showWindowSelector" class="modal-overlay">
        <div class="modal-content">
-        <h3>Select Game Window</h3>
+        <h3>{{ $t('sb_title_sel_win') }}</h3>
         <select v-model="selectedTargetWindow" class="win-select">
-          <option value="" disabled>-- Select Application --</option>
-          <option value="FULL_SCREEN">[ Full Screen Mode ]</option>
+          <option value="" disabled>{{ $t('sb_opt_sel_app') }}</option>
+          <option value="FULL_SCREEN">{{ $t('sb_opt_full_screen') }}</option>
           <option v-for="w in windowList" :key="w" :value="w">{{ w }}</option>
         </select>
         <div class="modal-actions">
-          <button class="btn-cancel" @click="showWindowSelector = false">Cancel</button>
-          <button class="btn-confirm" @click="confirmOverlay">Start Overlay</button>
+          <button class="btn-cancel" @click="showWindowSelector = false">{{ $t('btn_cancel') }}</button>
+          <button class="btn-confirm" @click="confirmOverlay">{{ $t('sb_btn_start_overlay') }}</button>
         </div>
       </div>
     </div>
 
     <div v-if="showResetDialog" class="modal-overlay">
       <div class="modal-content">
-        <h3>Confirm Next</h3>
-        <p>Save score and move to next?</p>
-        <label class="dont-ask-label"><input type="checkbox" v-model="dontAskAgainTemp"> Don't ask again</label>
+        <h3>{{ $t('sb_title_confirm_next') }}</h3>
+        <p>{{ $t('sb_msg_confirm_next') }}</p>
+        <label class="dont-ask-label"><input type="checkbox" v-model="dontAskAgainTemp"> {{ $t('sb_lbl_dont_ask') }}</label>
         <div class="modal-actions">
-          <button class="btn-cancel" @click="showResetDialog = false">Cancel</button>
-          <button class="btn-confirm" @click="confirmSmartNext">Confirm</button>
+          <button class="btn-cancel" @click="showResetDialog = false">{{ $t('btn_cancel') }}</button>
+          <button class="btn-confirm" @click="confirmSmartNext">{{ $t('sb_btn_confirm') }}</button>
         </div>
       </div>
     </div>
 
     <div v-if="showAllDoneDialog" class="modal-overlay">
       <div class="modal-content">
-        <h3>🎉 All Scored!</h3>
-        <p>All contestants have been scored.</p>
-        <p v-if="store.projectConfig.mode==='TOURNAMENT'" style="font-size:0.9rem;color:#aaa">Do you want to re-judge from the first player?</p>
+        <h3>{{ $t('sb_title_all_scored') }}</h3>
+        <p>{{ $t('sb_msg_all_scored') }}</p>
+        <p v-if="store.projectConfig.mode==='TOURNAMENT'" style="font-size:0.9rem;color:#aaa">{{ $t('sb_msg_rejudge') }}</p>
         <div class="modal-actions vertical-actions">
-          <button class="btn-confirm large" @click="finishMatch">Save & Exit Match</button>
+          <button class="btn-confirm large" @click="finishMatch">{{ $t('sb_btn_save_exit') }}</button>
           <button class="btn-cancel large" @click="continueLoopMatch">
-             {{ store.projectConfig.mode==='FREE' ? 'Continue (Add Player)' : 'Continue (Start Over)' }}
+             {{ store.projectConfig.mode==='FREE' ? $t('sb_btn_cont_add') : $t('sb_btn_cont_start_over') }}
           </button>
         </div>
       </div>
@@ -98,9 +98,11 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
+import { useI18n } from 'vue-i18n'
 
 const emit = defineEmits(['stop'])
 const store = useRefereeStore()
+const { t } = useI18n()
 
 const isAutoNext = ref(false)
 const showResetDialog = ref(false)
@@ -166,12 +168,9 @@ const handleNextClick = () => {
 const confirmSmartNext = async () => {
   if (dontAskAgainTemp.value) store.updateSetting('suppress_reset_confirm', true)
   showResetDialog.value = false
-
   const currentName = store.currentContext.contestantName
   store.markAsScored(currentName)
-
   const nextPlayer = findNextUnscoredPlayer()
-
   if (nextPlayer) {
     await switchContext(nextPlayer)
     await store.resetAll()
@@ -212,32 +211,24 @@ const continueLoopMatch = async () => {
 
 const finishMatch = () => { showAllDoneDialog.value = false; emit('stop') }
 
-// 【关键修改】统一切换选手逻辑，支持自由模式自动新建
 const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
   const group = store.projectConfig.groups.find(g => g.name === groupName)
   if (!group || !group.players) return
-
   const nextIdx = (currentIdx.value === -1 ? 0 : currentIdx.value) + delta
-
   if (nextIdx >= group.players.length) {
-    // 自由模式下，向后溢出则新建
     if (store.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
       await store.updateGroups(store.projectConfig.groups)
       await store.setMatchContext(groupName, newPlayerName)
-      // 切换到新选手并重置
       await store.resetAll()
     }
-    // 赛事模式下，不做循环，停在最后
   } else if (nextIdx < 0) {
-      // 向前溢出，循环到最后一个
       const target = group.players[group.players.length - 1]
       await store.setMatchContext(groupName, target)
       await store.resetAll()
   } else {
-      // 正常切换
       const target = group.players[nextIdx]
       await store.setMatchContext(groupName, target)
       await store.resetAll()
@@ -245,16 +236,12 @@ const changePlayer = async (delta) => {
 }
 
 const switchContext = async (name) => { await store.setMatchContext(store.currentContext.groupName, name) }
-const handleResetOnly = async () => { if (confirm("Reset current scores to ZERO?")) await store.resetAll() }
+const handleResetOnly = async () => { if (confirm(t('sb_msg_reset_zero'))) await store.resetAll() }
 
-// 【关键修改】修复 manualChange，在自由模式向后切换时使用 changePlayer 以支持新建
 const manualChange = async (delta) => {
-    // 只有在自由模式下且是"下一个"时，使用 changePlayer 触发新建逻辑
     if (store.projectConfig.mode === 'FREE' && delta > 0) {
         await changePlayer(delta)
     } else {
-        // 其他情况（如向前翻页，或赛事模式）保持原来的循环/列表逻辑
-        // 但为了统一体验，这里我们也统一调用 changePlayer 即可，因为 changePlayer 内部已经处理了边界
         await changePlayer(delta)
     }
 }
@@ -295,7 +282,7 @@ const confirmOverlay = async () => {
 </script>
 
 <style scoped lang="scss">
-/* 保持原有样式，省略 */
+/* Style omitted - unchanged */
 .score-board { height: 100%; display: flex; flex-direction: column; background: transparent; }
 .header { height: 70px; background: #252526; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); flex-shrink: 0; }
 .header-section { display: flex; align-items: center; gap: 10px; }

@@ -1,8 +1,8 @@
 <template>
   <div class="home-view">
     <div class="hero-section">
-      <h1>Welcome Back</h1>
-      <p>Ready for the next match?</p>
+      <h1>{{ $t('home_hero_title') }}</h1>
+      <p>{{ $t('home_hero_subtitle') }}</p>
     </div>
 
     <div class="cards-grid">
@@ -32,17 +32,17 @@
               <div class="p-date">{{ p.created_at }}</div>
             </div>
             <div class="p-actions">
-              <button class="btn-small btn-view" @click="handleViewDetails(p)">View</button>
-              <button class="btn-small btn-continue" @click="handleContinue(p)">Continue</button>
-              <button class="btn-small btn-delete" @click="handleDelete(p)" title="Delete Project">
+              <button class="btn-small btn-view" @click="handleViewDetails(p)">{{ $t('home_btn_view') }}</button>
+              <button class="btn-small btn-continue" @click="handleContinue(p)">{{ $t('home_btn_continue') }}</button>
+              <button class="btn-small btn-delete" @click="handleDelete(p)" :title="$t('home_btn_delete')">
                 <Trash2 :size="14" />
               </button>
             </div>
           </div>
-          <div v-if="projects.length === 0" class="no-data">No history found.</div>
+          <div v-if="projects.length === 0" class="no-data">{{ $t('home_no_history') }}</div>
         </div>
 
-        <button class="btn-close" @click="closeHistory">Close</button>
+        <button class="btn-close" @click="closeHistory">{{ $t('home_btn_close') }}</button>
       </div>
     </div>
   </div>
@@ -50,10 +50,11 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Plus, History, Trash2 } from 'lucide-vue-next' // 引入 Trash2 图标
+import { Plus, History, Trash2 } from 'lucide-vue-next'
 import { useRefereeStore } from '../stores/refereeStore'
+import { useI18n } from 'vue-i18n'
 
-// 接收来自 App.vue 的初始模式参数
+const { t } = useI18n()
 const props = defineProps({
   initialMode: {
     type: String,
@@ -67,14 +68,12 @@ const store = useRefereeStore()
 const showHistoryModal = ref(false)
 const projects = ref([])
 
-// 挂载时检查是否需要自动打开历史记录
 onMounted(async () => {
   if (props.initialMode === 'history') {
     await openHistory()
   }
 })
 
-// 新建比赛：必须清理旧的 Store 状态
 const handleNewMatch = () => {
   store.clearLocalConfig()
   emit('navigate', 'setup')
@@ -90,12 +89,9 @@ const closeHistory = () => {
 }
 
 const handleViewDetails = (project) => {
-  // 不关闭模态框状态，直接切换视图，这样如果 App.vue 处理得当，逻辑更顺畅
-  // 但这里遵循 App.vue 的状态管理，只需 emit
   emit('view-report', project.dir_name)
 }
 
-// 继续比赛：加载状态，然后进入 Setup
 const handleContinue = async (project) => {
   const success = await store.loadProject(project.dir_name)
   if (success) {
@@ -104,23 +100,21 @@ const handleContinue = async (project) => {
   }
 }
 
-// 处理删除项目
 const handleDelete = async (project) => {
-  const confirmMsg = `Are you sure you want to delete "${project.project_name}"?\n\nThis action cannot be undone.`
+  const confirmMsg = t('home_del_confirm', { name: project.project_name })
   if (confirm(confirmMsg)) {
     const success = await store.deleteProject(project.dir_name)
     if (success) {
-      // 删除成功后刷新列表
       projects.value = await store.fetchHistoryProjects()
     } else {
-      alert("Failed to delete project. Please try again.")
+      alert(t('home_del_fail'))
     }
   }
 }
 </script>
 
 <style scoped lang="scss">
-/* 保持原有 CSS */
+/* Style omitted - unchanged */
 .home-view { padding: 40px; color: white; animation: fadeIn 0.5s; }
 .hero-section { margin-bottom: 40px; h1 { font-size: 2.5rem; } p { color: #888; } }
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 30px; }
@@ -128,31 +122,16 @@ const handleDelete = async (project) => {
 .icon-circle { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
 .card.new-match .icon-circle { color: #2ecc71; background: rgba(46, 204, 113, 0.1); }
 .card.history .icon-circle { color: #f39c12; background: rgba(243, 156, 18, 0.1); }
-
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 2000; }
 .modal-content { background: #252526; width: 600px; max-height: 80vh; border-radius: 8px; padding: 20px; display: flex; flex-direction: column; }
-
 .project-list { flex: 1; overflow-y: auto; margin: 15px 0; border: 1px solid #333; border-radius: 4px; }
 .project-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #333; &:hover { background: #2d2d2d; } }
 .p-info { .p-name { font-weight: bold; font-size: 1.1rem; } .p-date { color: #888; font-size: 0.85rem; } }
-
-/* 修改操作区布局 */
 .p-actions { display: flex; gap: 8px; }
-
 .btn-small { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
 .btn-view { background: #3498db; &:hover { background: #2980b9; } }
 .btn-continue { background: #2ecc71; &:hover { background: #27ae60; } }
-
-/* 新增删除按钮样式 */
-.btn-delete {
-  background: #c0392b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 10px;
-  &:hover { background: #e74c3c; }
-}
-
+.btn-delete { background: #c0392b; display: flex; align-items: center; justify-content: center; padding: 6px 10px; &:hover { background: #e74c3c; } }
 .btn-close { align-self: flex-end; padding: 8px 20px; background: #555; color: white; border: none; cursor: pointer; border-radius: 4px; &:hover { background: #666; } }
 .no-data { padding: 20px; text-align: center; color: #666; }
 </style>

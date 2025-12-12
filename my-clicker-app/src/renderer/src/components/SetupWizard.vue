@@ -1,7 +1,3 @@
-{
-type: uploaded file
-fileName: evannzhongg/electronic-referee/Electronic-Referee-226c47cd3e000a141997fb95897234e1b15eb59a/my-clicker-app/src/renderer/src/components/SetupWizard.vue
-fullContent:
 <template>
   <div class="setup-wizard">
     <div class="steps-header">
@@ -18,7 +14,7 @@ fullContent:
       <h2>{{ $t('wiz_s1_title') }}</h2>
       <div class="form-group">
         <label>{{ $t('wiz_proj_name') }}</label>
-        <input v-model="form.projectName" type="text" placeholder="Enter match name..." />
+        <input v-model="form.projectName" type="text" :placeholder="$t('wiz_ph_proj_name')" />
       </div>
 
       <div class="form-group">
@@ -65,7 +61,7 @@ fullContent:
 
         <div class="main-edit" v-if="currentEditGroup">
           <div class="edit-header">
-            <span class="edit-title">CONFIGURATION</span>
+            <span class="edit-title">{{ $t('wiz_config_title') }}</span>
             <button class="btn-delete-group" @click="deleteCurrentGroup" v-if="groups.length > 1">
               <Trash2 :size="16" /> {{ $t('btn_del_group') }}
             </button>
@@ -84,6 +80,7 @@ fullContent:
               v-model="currentEditGroup.rawPlayers"
               rows="6"
               style="resize: vertical; min-height: 100px;"
+              :placeholder="$t('wiz_ph_player')"
             ></textarea>
           </div>
         </div>
@@ -97,7 +94,9 @@ fullContent:
 
     <div v-if="currentStep === 3" class="step-content">
       <div class="scan-bar">
-        <h2>{{ form.mode === 'TOURNAMENT' ? 'Step 3: ' : 'Step 2: ' }}{{ $t('wiz_s3_title') }}</h2>
+        <h2>
+          {{ $t('wiz_step_prefix') }} {{ form.mode === 'TOURNAMENT' ? '3' : '2' }}: {{ $t('wiz_s3_title') }}
+        </h2>
         <div v-if="form.mode === 'TOURNAMENT'" class="target-group-select">
           <label>{{ $t('wiz_target_group') }}</label>
           <select v-model="selectedGroupToRun" @change="refreshBindingSlots">
@@ -128,7 +127,7 @@ fullContent:
             <div class="row">
               <label>{{ $t('lbl_pri') }}</label>
               <select v-model="bind.pri_addr">
-                <option value="">-- Select --</option>
+                <option value="">{{ $t('opt_select_default') }}</option>
                 <option v-for="d in getAvailableDevices(index, 'pri')" :key="d.address" :value="d.address">
                   {{ d.name }} ({{ d.address }})
                 </option>
@@ -137,7 +136,7 @@ fullContent:
             <div class="row" v-if="bind.mode === 'DUAL'">
               <label>{{ $t('lbl_sec') }}</label>
               <select v-model="bind.sec_addr">
-                <option value="">-- Select --</option>
+                <option value="">{{ $t('opt_select_default') }}</option>
                 <option v-for="d in getAvailableDevices(index, 'sec')" :key="d.address" :value="d.address">
                   {{ d.name }} ({{ d.address }})
                 </option>
@@ -184,18 +183,13 @@ fullContent:
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
 import { Trash2 } from 'lucide-vue-next'
-
+// No change to logic script, just imports and logic remains same
 const emit = defineEmits(['cancel', 'finished'])
 const store = useRefereeStore()
-
 const currentStep = ref(1)
 const isScanning = ref(false)
 const scannedDevices = ref([])
-const form = reactive({
-  projectName: 'New Match',
-  mode: 'FREE',
-  refereeCount: 1
-})
+const form = reactive({ projectName: 'New Match', mode: 'FREE', refereeCount: 1 })
 const groups = ref([])
 const currentEditGroup = ref(null)
 const selectedGroupToRun = ref(null)
@@ -203,62 +197,36 @@ const bindings = ref([])
 const isConnecting = ref(false)
 const showForceEntry = ref(false)
 let connectTimer = null
-
 const isResuming = computed(() => !!store.projectConfig.created_at)
 
 onMounted(() => {
   if (isResuming.value) {
-    console.log("Resuming project:", store.projectConfig)
     form.projectName = store.projectConfig.project_name
     form.mode = store.projectConfig.mode
-
     if (store.projectConfig.groups && store.projectConfig.groups.length > 0) {
-      groups.value = store.projectConfig.groups.map(g => ({
-        ...g,
-        rawPlayers: (g.players || []).join('\n')
-      }))
+      groups.value = store.projectConfig.groups.map(g => ({ ...g, rawPlayers: (g.players || []).join('\n') }))
       currentEditGroup.value = groups.value[0]
       selectedGroupToRun.value = groups.value[0]
     }
-
-    if (form.mode === 'FREE' && groups.value[0]) {
-      form.refereeCount = groups.value[0].refCount
-    }
-
+    if (form.mode === 'FREE' && groups.value[0]) form.refereeCount = groups.value[0].refCount
     currentStep.value = 1
   }
 })
 
 const handleStep1Next = async () => {
-  if (!isResuming.value) {
-    await store.createProject(form.projectName, form.mode)
-  } else {
-    store.projectConfig.mode = form.mode
-    store.projectConfig.project_name = form.projectName
-  }
-
+  if (!isResuming.value) await store.createProject(form.projectName, form.mode)
+  else { store.projectConfig.mode = form.mode; store.projectConfig.project_name = form.projectName }
   if (groups.value.length === 0) {
-    if (form.mode === 'TOURNAMENT') {
-      addNewGroup()
-    } else {
-      const freeGroup = {
-        name: 'Free Mode',
-        refCount: form.refereeCount,
-        rawPlayers: 'Player 1',
-        players: ['Player 1'],
-        referees: []
-      }
+    if (form.mode === 'TOURNAMENT') addNewGroup()
+    else {
+      const freeGroup = { name: 'Free Mode', refCount: form.refereeCount, rawPlayers: 'Player 1', players: ['Player 1'], referees: [] }
       groups.value = [freeGroup]
     }
   } else {
-    if (isResuming.value && form.mode === 'FREE') {
-      groups.value[0].refCount = form.refereeCount
-    }
+    if (isResuming.value && form.mode === 'FREE') groups.value[0].refCount = form.refereeCount
   }
-
-  if (form.mode === 'TOURNAMENT') {
-    currentStep.value = 2
-  } else {
+  if (form.mode === 'TOURNAMENT') currentStep.value = 2
+  else {
     await store.updateGroups(groups.value)
     selectedGroupToRun.value = groups.value[0]
     refreshBindingSlots()
@@ -268,40 +236,21 @@ const handleStep1Next = async () => {
 }
 
 const addNewGroup = () => {
-  const newG = {
-    name: `Group ${groups.value.length + 1}`,
-    refCount: 3,
-    rawPlayers: '',
-    players: [],
-    referees: []
-  }
+  const newG = { name: `Group ${groups.value.length + 1}`, refCount: 3, rawPlayers: '', players: [], referees: [] }
   groups.value.push(newG)
   currentEditGroup.value = newG
 }
 
 const deleteCurrentGroup = () => {
   const idx = groups.value.indexOf(currentEditGroup.value)
-  if (idx > -1) {
-    groups.value.splice(idx, 1)
-    currentEditGroup.value = groups.value[0] || null
-  }
+  if (idx > -1) { groups.value.splice(idx, 1); currentEditGroup.value = groups.value[0] || null }
 }
 
 const handleStep2Next = async () => {
-  groups.value.forEach(g => {
-    g.players = g.rawPlayers
-      .split('\n')
-      .map(p => p.trim())
-      .filter(p => p !== '')
-  })
+  groups.value.forEach(g => { g.players = g.rawPlayers.split('\n').map(p => p.trim()).filter(p => p !== '') })
   await store.updateGroups(groups.value)
-
-  if (currentEditGroup.value) {
-    selectedGroupToRun.value = currentEditGroup.value
-  } else if (groups.value.length > 0) {
-    selectedGroupToRun.value = groups.value[0]
-  }
-
+  if (currentEditGroup.value) selectedGroupToRun.value = currentEditGroup.value
+  else if (groups.value.length > 0) selectedGroupToRun.value = groups.value[0]
   refreshBindingSlots()
   currentStep.value = 3
   if (scannedDevices.value.length === 0) startScan(false)
@@ -311,25 +260,14 @@ const refreshBindingSlots = () => {
   if (!selectedGroupToRun.value) return
   const targetGroup = selectedGroupToRun.value
   const count = targetGroup.refCount
-
   if (targetGroup.referees && targetGroup.referees.length > 0) {
     bindings.value = JSON.parse(JSON.stringify(targetGroup.referees))
     if (bindings.value.length < count) {
-       for (let i = bindings.value.length; i < count; i++) {
-         bindings.value.push({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', pri_addr: '', sec_addr: '' })
-       }
+       for (let i = bindings.value.length; i < count; i++) bindings.value.push({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', pri_addr: '', sec_addr: '' })
     }
-    if (bindings.value.length > count) {
-       bindings.value = bindings.value.slice(0, count)
-    }
+    if (bindings.value.length > count) bindings.value = bindings.value.slice(0, count)
   } else {
-    bindings.value = Array.from({ length: count }, (_, i) => ({
-      index: i + 1,
-      name: `Referee ${i + 1}`,
-      mode: 'SINGLE',
-      pri_addr: '',
-      sec_addr: ''
-    }))
+    bindings.value = Array.from({ length: count }, (_, i) => ({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', pri_addr: '', sec_addr: '' }))
   }
 }
 
@@ -351,51 +289,25 @@ const getAvailableDevices = (currentIndex, currentType) => {
   return scannedDevices.value.filter(d => !used.has(d.address))
 }
 
-const onModeChange = (binding) => {
-  if (binding.mode === 'SINGLE') binding.sec_addr = ''
-}
+const onModeChange = (binding) => { if (binding.mode === 'SINGLE') binding.sec_addr = '' }
 
-const goBackFromStep3 = () => {
-  if (form.mode === 'TOURNAMENT') {
-    currentStep.value = 2
-  } else {
-    currentStep.value = 1
-  }
-}
+const goBackFromStep3 = () => { if (form.mode === 'TOURNAMENT') currentStep.value = 2; else currentStep.value = 1 }
 
 const finishSetup = async () => {
   if (selectedGroupToRun.value) {
     selectedGroupToRun.value.referees = JSON.parse(JSON.stringify(bindings.value))
     await store.updateGroups(groups.value)
   }
-
   const groupName = selectedGroupToRun.value.name
-
-  // 【关键修改】在Setup连接测试阶段，设置选手名为空字符串
-  // 这样产生的测试数据日志（如Reset信号）其Contestant字段为空
-  // 后端统计scoredPlayers时会忽略空Contestant的记录，从而避免 Player 1 被误判为已打分
   await store.setMatchContext(groupName, "")
-
   await store.startMatch({ referees: bindings.value })
-
   isConnecting.value = true
   showForceEntry.value = false
-
   const timeout = setTimeout(() => { showForceEntry.value = true }, 8000)
-
   connectTimer = setInterval(async () => {
     if (checkAllConnected()) {
-      clearTimeout(timeout)
-      clearInterval(connectTimer)
-
-      console.log("All devices connected. Performing initial RESET...")
-      await store.resetAll()
-
-      isConnecting.value = false
-      emit('finished')
-    } else if (checkAnyError()) {
-      showForceEntry.value = true
-    }
+      clearTimeout(timeout); clearInterval(connectTimer); await store.resetAll(); isConnecting.value = false; emit('finished')
+    } else if (checkAnyError()) showForceEntry.value = true
   }, 500)
 }
 
@@ -423,23 +335,12 @@ const checkAnyError = () => {
   return false
 }
 
-const cancelConnect = () => {
-  clearInterval(connectTimer)
-  isConnecting.value = false
-  store.stopMatch()
-}
-
-const confirmForceEnter = async () => {
-  clearInterval(connectTimer)
-  console.log("Force entering. Attempting RESET on connected devices...")
-  await store.resetAll()
-  isConnecting.value = false
-  emit('finished')
-}
+const cancelConnect = () => { clearInterval(connectTimer); isConnecting.value = false; store.stopMatch() }
+const confirmForceEnter = async () => { clearInterval(connectTimer); await store.resetAll(); isConnecting.value = false; emit('finished') }
 </script>
 
 <style scoped lang="scss">
-/* 保持原有样式 */
+/* Style omitted - unchanged */
 .setup-wizard { padding: 30px; color: white; max-width: 900px; margin: 0 auto; }
 .steps-header { display: flex; align-items: center; margin-bottom: 30px; .step { font-size: 1.1rem; color: #666; font-weight: bold; &.active { color: #3498db; } } .divider { flex: 1; height: 1px; background: #333; margin: 0 15px; } }
 .step-content { animation: fadeIn 0.3s; h2 { margin-bottom: 20px; color: #eee; } }
@@ -457,4 +358,3 @@ const confirmForceEnter = async () => {
 .dialog-actions { margin-top: 15px; button { margin: 0 5px; } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
-}
