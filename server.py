@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 import sys
 import os
-
+import yaml
 
 import uvicorn
 from fastapi import FastAPI, WebSocket
@@ -38,6 +38,32 @@ match_state = {
     "current_contestant": "",
     "config": {}
 }
+
+
+def load_config():
+  port = 8000  # 默认端口
+
+  # 判断路径 (兼容开发环境和打包环境)
+  if getattr(sys, 'frozen', False):
+    base_path = os.path.dirname(sys.executable)
+  else:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+  config_path = os.path.join(base_path, 'config.yaml')
+
+  if os.path.exists(config_path):
+    try:
+      with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+        if config and 'server_port' in config:
+          port = int(config['server_port'])
+          print(f"[Config] Loaded port from config.yaml: {port}")
+    except Exception as e:
+      print(f"[Config] Failed to load config.yaml, using default: {e}")
+  else:
+    print(f"[Config] config.yaml not found at {config_path}, using default port 8000")
+
+  return port
 
 @dataclass
 class ClickerEvent:
@@ -724,4 +750,7 @@ async def export_details(data: dict):
   return StreamingResponse(zip_io, media_type="application/zip", headers=headers)
 
 if __name__ == "__main__":
-  uvicorn.run(app, host="127.0.0.1", port=8000)
+    # 获取端口
+    SERVER_PORT = load_config()
+    # 使用动态端口启动
+    uvicorn.run(app, host="127.0.0.1", port=SERVER_PORT)
