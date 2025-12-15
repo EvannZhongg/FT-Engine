@@ -54,10 +54,11 @@ function createWindow() {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    frame: false, // 无边框
-    transparent: true, // 开启透明支持
+    frame: false,
+    transparent: true,
     hasShadow: false,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    resizable: true,
+    icon: icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -74,7 +75,7 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  // 【新增】监听主窗口关闭事件，同步关闭悬浮窗
+  // 监听主窗口关闭事件，同步关闭悬浮窗
   mainWindow.on('close', () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.close()
@@ -89,9 +90,21 @@ function createWindow() {
   }
 }
 
+// 2. 添加最大化/还原的 IPC 监听 (加在 ipcMain.on 区域)
+ipcMain.on('window-max', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win) {
+    if (win.isMaximized()) {
+      win.unmaximize()
+    } else {
+      win.maximize()
+    }
+  }
+})
+
 // --- 4. 应用生命周期与 IPC 事件 ---
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.freakthrow.FT Engine')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

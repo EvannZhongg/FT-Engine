@@ -1,8 +1,8 @@
 <template>
   <div class="navbar-container">
-    <div class="navbar">
+    <div class="navbar" @dblclick="maximizeWindow">
       <div class="brand">
-        <span class="logo-icon">🏆</span>
+        <img src="../assets/icon.png" class="logo-icon" style="width: 24px; height: 24px;" />
         <span class="title">{{ $t('app_title') }}</span>
       </div>
 
@@ -21,6 +21,11 @@
           <button class="win-btn" @click="minimizeWindow" :title="$t('nav_minimize')">
             <Minus :size="16" />
           </button>
+
+          <button class="win-btn" @click="maximizeWindow" title="Maximize/Restore">
+            <Square :size="14" />
+          </button>
+
           <button class="win-btn close-btn" @click="closeWindow" :title="$t('nav_close')">
             <X :size="16" />
           </button>
@@ -59,11 +64,12 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { Settings, Minus, X } from 'lucide-vue-next'
+// 【新增】引入 Square 图标
+import { Settings, Minus, X, Square } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRefereeStore } from '../stores/refereeStore'
 
-const { locale, t } = useI18n() // Add t for JS usage if needed
+const { locale, t } = useI18n()
 const store = useRefereeStore()
 const showSettings = ref(false)
 
@@ -146,6 +152,13 @@ const changeLanguage = (event) => {
 const minimizeWindow = () => {
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.send('window-min')
+  }
+}
+
+// 【新增】最大化/还原函数
+const maximizeWindow = () => {
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.send('window-max')
   }
 }
 
