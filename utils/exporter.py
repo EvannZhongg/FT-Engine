@@ -7,15 +7,11 @@ from datetime import datetime, timedelta
 
 
 def parse_time(time_str):
-    """解析 '2023-10-27 10:00:00.123' 格式的时间"""
-    try:
-        return datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S.%f")
-    except:
-        return datetime.now()
+    try: return datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S.%f")
+    except: return datetime.now()
 
 
-def format_srt_time(td: timedelta):
-    """将 timedelta 转换为 SRT 时间格式 00:00:00,000"""
+def format_srt_time(td):
     total_seconds = int(td.total_seconds())
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
@@ -29,67 +25,54 @@ class ExportManager:
         self.storage = storage_mgr
 
     def generate_zip(self, group_name, players, options):
-        """
-        生成 ZIP 文件的二进制流
-        players: list of player names
-        options: { 'txt': bool, 'srt': bool, 'srt_mode': 'TOTAL'|'SPLIT'|'REALTIME' }
-        """
         mem_file = io.BytesIO()
-
-        # 组别路径
         group_dir = self.storage._get_group_dir(group_name)
-        if not os.path.exists(group_dir):
-            return None
+        if not os.path.exists(group_dir): return None
 
-        # 预加载所有 CSV 文件以提高效率
-        # 结构: { contestant: { ref_index: [events...] } }
+        # 加载数据 (适配新文件名)
         data_map = self._load_group_data(group_dir)
 
         with zipfile.ZipFile(mem_file, 'w', zipfile.ZIP_DEFLATED) as zf:
             for player in players:
                 if player not in data_map: continue
-
                 player_refs = data_map[player]
-                # 遍历该选手的每个裁判数据
                 for ref_idx, events in player_refs.items():
-                    # 1. 导出 TXT
+                    # 导出 TXT
                     if options.get('txt'):
                         txt_content = self._generate_txt_content(events)
                         zf.writestr(f"{group_name}/{player}/Ref{ref_idx}_Log.txt", txt_content)
-
-                    # 2. 导出 SRT
+                    # 导出 SRT
                     if options.get('srt'):
                         srt_mode = options.get('srt_mode', 'TOTAL')
                         srt_content = self._generate_srt_content(events, srt_mode)
                         zf.writestr(f"{group_name}/{player}/Ref{ref_idx}_{srt_mode}.srt", srt_content)
-
         mem_file.seek(0)
         return mem_file
 
     def _load_group_data(self, group_dir):
         """读取该组所有 CSV 并按选手归类"""
-        data = {}  # { player: { ref_idx: [ {time, plus, minus, total}... ] } }
+        data = {}
 
         for f in os.listdir(group_dir):
-            if not f.endswith(".csv") or not f.startswith("referee_"): continue
+            if not f.endswith(".csv") or "_Ref" not in f: continue
 
-            # 解析文件名 referee_1_PRIMARY.csv
-            parts = f.replace(".csv", "").split("_")
-            if len(parts) < 3: continue
-            ref_idx = int(parts[1])
-            # role = parts[2] # 暂时忽略 role，通常 PRIMARY 包含完整数据
+            # 解析文件名: Player_Ref1.csv
+            try:
+                base_name = f.replace(".csv", "")
+                player_part, ref_part = base_name.rsplit("_Ref", 1)
+                ref_idx = int(ref_part)
+                c_name = player_part
+            except:
+                continue
 
             path = os.path.join(group_dir, f)
             with open(path, 'r', encoding='utf-8-sig') as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
-                    c_name = row.get("Contestant")
-                    if not c_name: continue
-
+                    # 现在CSV里没有 Contestant 列了，直接用文件名里的 c_name
                     if c_name not in data: data[c_name] = {}
                     if ref_idx not in data[c_name]: data[c_name][ref_idx] = []
 
-                    # 转换数据
                     try:
                         dt = parse_time(row["SystemTime"])
                         data[c_name][ref_idx].append({
@@ -98,14 +81,12 @@ class ExportManager:
                             "minus": int(row.get("TotalMinus") or 0),
                             "total": int(row.get("CurrentTotal") or 0)
                         })
-                    except:
-                        pass
+                    except: pass
 
-        # 对每个列表按时间排序
+        # 排序
         for p in data:
             for r in data[p]:
                 data[p][r].sort(key=lambda x: x['dt'])
-
         return data
 
     def _generate_txt_content(self, events):
