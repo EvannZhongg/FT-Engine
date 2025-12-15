@@ -1,10 +1,12 @@
 import {defineStore} from 'pinia'
 import axios from 'axios'
 
-const API_BASE = 'http://127.0.0.1:8000'
-
 export const useRefereeStore = defineStore('referee', {
   state: () => ({
+    // --- 动态配置 ---
+    apiBase: 'http://127.0.0.1:8000', // 默认值，会被 initConfig 覆盖
+    wsUrl: 'ws://127.0.0.1:8000/ws',  // 默认值
+
     // 裁判与设备状态
     referees: {},
     isConnected: false,
@@ -26,10 +28,35 @@ export const useRefereeStore = defineStore('referee', {
   }),
 
   actions: {
+    // --- 新增：初始化配置 (从 Electron 获取端口) ---
+    async initConfig() {
+      // 检查是否在 Electron 环境下
+      if (window.electron && window.electron.ipcRenderer) {
+        try {
+          // 调用主进程接口获取 config.yaml 中的端口
+          const config = await window.electron.ipcRenderer.invoke('get-server-config')
+          const port = config.port
+
+          // 更新 API 地址
+          this.apiBase = `http://127.0.0.1:${port}`
+          this.wsUrl = `ws://127.0.0.1:${port}/ws`
+          console.log(`[Store] Configured API to port ${port}`)
+        } catch (e) {
+          console.error("Failed to load server config", e)
+        }
+      }
+    },
+
     // --- 1. WebSocket 连接 ---
-    connectWebSocket() {
+    async connectWebSocket() {
+      // 1. 确保配置已加载 (获取正确端口)
+      await this.initConfig()
+
       if (this.ws) return
-      this.ws = new WebSocket('ws://127.0.0.1:8000/ws')
+
+      // 2. 使用动态的 wsUrl 连接
+      this.ws = new WebSocket(this.wsUrl)
+
       this.ws.onopen = () => {
         this.isConnected = true;
         console.log('WS Connected')
@@ -60,6 +87,7 @@ export const useRefereeStore = defineStore('referee', {
       this.ws.onclose = () => {
         this.isConnected = false
         this.ws = null
+        // 断线重连
         setTimeout(() => this.connectWebSocket(), 3000)
       }
     },
@@ -82,7 +110,8 @@ export const useRefereeStore = defineStore('referee', {
     // --- 2. 全局设置管理 ---
     async fetchSettings() {
       try {
-        const res = await axios.get(`${API_BASE}/api/settings`)
+        // 使用 this.apiBase
+        const res = await axios.get(`${this.apiBase}/api/settings`)
         // 合并到本地状态
         this.appSettings = {...this.appSettings, ...res.data}
       } catch (e) {
@@ -97,7 +126,7 @@ export const useRefereeStore = defineStore('referee', {
         // 乐观更新本地状态
         this.appSettings[key] = value
         // 发送给后端保存
-        await axios.post(`${API_BASE}/api/settings/update`, payload)
+        await axios.post(`${this.apiBase}/api/settings/update`, payload)
       } catch (e) {
         console.error("Failed to update setting:", e)
       }
@@ -117,7 +146,7 @@ export const useRefereeStore = defineStore('referee', {
     // 创建项目
     async createProject(name, mode) {
       try {
-        const res = await axios.post(`${API_BASE}/api/project/create`, {name, mode})
+        const res = await axios.post(`${this.apiBase}/api/project/create`, {name, mode})
         // 后端返回初始配置
         this.projectConfig = res.data.config
         return res.data
@@ -130,7 +159,7 @@ export const useRefereeStore = defineStore('referee', {
     // 更新组别信息 (赛事模式编辑完组别后调用)
     async updateGroups(groups) {
       try {
-        await axios.post(`${API_BASE}/api/project/update_groups`, {groups})
+        await axios.post(`${this.apiBase}/api/project/update_groups`, {groups})
         this.projectConfig.groups = groups
       } catch (e) {
         console.error("Update Groups Failed:", e)
@@ -141,7 +170,7 @@ export const useRefereeStore = defineStore('referee', {
     // 设置当前比赛上下文 (切换选手/组别时调用)
     async setMatchContext(groupName, contestantName) {
       try {
-        await axios.post(`${API_BASE}/api/match/set_context`, {
+        await axios.post(`${this.apiBase}/api/match/set_context`, {
           group: groupName,
           contestant: contestantName
         })
@@ -156,7 +185,7 @@ export const useRefereeStore = defineStore('referee', {
 
     async scanDevices(isRefresh = false) {
       try {
-        const res = await axios.get(`${API_BASE}/scan?flush=${isRefresh}`)
+        const res = await axios.get(`${this.apiBase}/scan?flush=${isRefresh}`)
         return res.data.devices || []
       } catch (e) {
         console.error("Scan failed:", e)
@@ -168,7 +197,7 @@ export const useRefereeStore = defineStore('referee', {
     async startMatch(config) {
       try {
         // config: { referees: [...] }
-        await axios.post(`${API_BASE}/setup`, config)
+        await axios.post(`${this.apiBase}/setup`, config)
 
         // 重置本地状态
         this.referees = {}
@@ -189,7 +218,7 @@ export const useRefereeStore = defineStore('referee', {
 
     async resetAll() {
       try {
-        await axios.post(`${API_BASE}/reset`)
+        await axios.post(`${this.apiBase}/reset`)
         // 乐观更新
         for (const key in this.referees) {
           this.referees[key].total = 0
@@ -203,7 +232,7 @@ export const useRefereeStore = defineStore('referee', {
 
     async stopMatch() {
       try {
-        await axios.post(`${API_BASE}/teardown`)
+        await axios.post(`${this.apiBase}/teardown`)
       } catch (e) {
         console.error("Stop match failed:", e)
       } finally {
@@ -217,7 +246,7 @@ export const useRefereeStore = defineStore('referee', {
     // 获取系统窗口列表
     async fetchWindows() {
       try {
-        const res = await axios.get(`${API_BASE}/api/windows`)
+        const res = await axios.get(`${this.apiBase}/api/windows`)
         return res.data.windows || []
       } catch (e) {
         console.error("Failed to fetch windows:", e)
@@ -228,7 +257,7 @@ export const useRefereeStore = defineStore('referee', {
     // 获取特定窗口坐标
     async getWindowBounds(title) {
       try {
-        const res = await axios.post(`${API_BASE}/api/window/bounds`, {title})
+        const res = await axios.post(`${this.apiBase}/api/window/bounds`, {title})
         return res.data
       } catch (e) {
         return {found: false}
@@ -239,7 +268,7 @@ export const useRefereeStore = defineStore('referee', {
 
     async fetchHistoryProjects() {
       try {
-        const res = await axios.get(`${API_BASE}/api/projects/list`)
+        const res = await axios.get(`${this.apiBase}/api/projects/list`)
         return res.data.projects || []
       } catch (e) {
         console.error("Fetch projects failed", e)
@@ -249,7 +278,7 @@ export const useRefereeStore = defineStore('referee', {
 
     async loadProject(dirName) {
       try {
-        const res = await axios.post(`${API_BASE}/api/project/load`, {dir_name: dirName})
+        const res = await axios.post(`${this.apiBase}/api/project/load`, {dir_name: dirName})
         if (res.data.status === 'ok') {
           this.projectConfig = res.data.config
           return true
@@ -264,7 +293,7 @@ export const useRefereeStore = defineStore('referee', {
     async fetchReportData(dirName) {
       try {
         // 返回 { config: ..., scores: ... }
-        const res = await axios.post(`${API_BASE}/api/project/report`, {dir_name: dirName})
+        const res = await axios.post(`${this.apiBase}/api/project/report`, {dir_name: dirName})
         return res.data
       } catch (e) {
         console.error("Fetch report failed", e)
@@ -277,7 +306,7 @@ export const useRefereeStore = defineStore('referee', {
     async fetchScoredPlayers(groupName) {
       if (!groupName) return
       try {
-        const res = await axios.post(`${API_BASE}/api/group/status`, {group: groupName})
+        const res = await axios.post(`${this.apiBase}/api/group/status`, {group: groupName})
         if (res.data.scored) {
           this.scoredPlayers = new Set(res.data.scored)
         }
@@ -302,7 +331,7 @@ export const useRefereeStore = defineStore('referee', {
     // --- 新增：删除项目 ---
     async deleteProject(dirName) {
       try {
-        const res = await axios.post(`${API_BASE}/api/project/delete`, {dir_name: dirName})
+        const res = await axios.post(`${this.apiBase}/api/project/delete`, {dir_name: dirName})
         return res.data.status === 'ok'
       } catch (e) {
         console.error("Delete project failed", e)
@@ -311,7 +340,7 @@ export const useRefereeStore = defineStore('referee', {
     },
     async exportScoreDetails(groupName, players, options) {
       try {
-        const response = await axios.post(`${API_BASE}/api/export/details`, {
+        const response = await axios.post(`${this.apiBase}/api/export/details`, {
           group: groupName,
           players: players,
           options: options

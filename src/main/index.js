@@ -1,12 +1,48 @@
 import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import yaml from 'js-yaml'
+import fs from 'fs'
 const { spawn } = require('child_process')
 
 let pyProc = null
 let mainWindow = null
 let overlayWindow = null
+
+// --- 新增：读取配置端口函数 ---
+function getAppConfig() {
+  let port = 8000 // 默认端口
+  try {
+    let configPath = ''
+    if (app.isPackaged) {
+      // 打包后：config.yaml 在 exe 同级目录
+      configPath = join(dirname(app.getPath('exe')), 'config.yaml')
+      console.log('Config Path (Prod):', configPath)
+    } else {
+      // 开发时：使用 process.cwd() 获取项目根目录 (ft_engine)
+      configPath = join(process.cwd(), 'config.yaml')
+      console.log('Config Path (Dev):', configPath)
+    }
+
+    if (fs.existsSync(configPath)) {
+      const fileContents = fs.readFileSync(configPath, 'utf8')
+      const config = yaml.load(fileContents)
+      if (config && config.server_port) {
+        port = config.server_port
+        console.log(`[Electron] Loaded port from config: ${port}`)
+      }
+    } else {
+      console.log(`[Electron] Config file not found, using default port 8000`)
+    }
+  } catch (e) {
+    console.error('[Electron] Failed to load config:', e)
+  }
+  return { port }
+}
+
+// 缓存配置以便多次使用
+const appConfig = getAppConfig()
 
 // --- 1. 启动 Python 后端 ---
 const createPyProc = () => {
@@ -55,8 +91,11 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     frame: false,
-    transparent: true,
-    hasShadow: false,
+    // 【关键修改 1】关闭主窗口透明，解决最大化崩溃和无法还原的问题
+    transparent: false,
+    // 【关键修改 2】设置背景色，防止关闭透明后窗口变白
+    backgroundColor: '#1e1e1e',
+    hasShadow: true, // 关闭透明后，可以开启系统阴影让窗口更自然（可选）
     resizable: true,
     icon: icon,
     webPreferences: {
@@ -90,18 +129,6 @@ function createWindow() {
   }
 }
 
-// 2. 添加最大化/还原的 IPC 监听 (加在 ipcMain.on 区域)
-ipcMain.on('window-max', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender)
-  if (win) {
-    if (win.isMaximized()) {
-      win.unmaximize()
-    } else {
-      win.maximize()
-    }
-  }
-})
-
 // --- 4. 应用生命周期与 IPC 事件 ---
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.freakthrow.FT Engine')
@@ -115,7 +142,24 @@ app.whenReady().then(() => {
 
   // === IPC 事件监听 ===
 
-  // 1. 打开悬浮窗
+  // 0. 新增：前端获取服务端配置（端口）
+  ipcMain.handle('get-server-config', () => {
+    return appConfig
+  })
+
+  // 1. 最大化/还原窗口控制
+  ipcMain.on('window-max', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) {
+      if (win.isMaximized()) {
+        win.unmaximize()
+      } else {
+        win.maximize()
+      }
+    }
+  })
+
+  // 2. 打开悬浮窗
   ipcMain.on('open-overlay', (event, { bounds, initialState } = {}) => {
     if (overlayWindow) {
       overlayWindow.focus()
@@ -176,14 +220,14 @@ app.whenReady().then(() => {
     })
   })
 
-  // 2. 关闭悬浮窗
+  // 3. 关闭悬浮窗
   ipcMain.on('close-overlay', () => {
     if (overlayWindow) {
       overlayWindow.close()
     }
   })
 
-  // 3. 鼠标穿透控制
+  // 4. 鼠标穿透控制
   ipcMain.on('set-ignore-mouse', (event, ignore) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
@@ -196,7 +240,7 @@ app.whenReady().then(() => {
     }
   })
 
-  // 4. 窗口控制
+  // 5. 窗口控制
   ipcMain.on('window-min', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.minimize()
