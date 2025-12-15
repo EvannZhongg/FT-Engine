@@ -310,6 +310,7 @@ class HeadlessReferee:
     self.broadcast = broadcast_func
     self.pri_dev = None
     self.sec_dev = None
+    # 初始分数
     self.score = {"total": 0, "plus": 0, "minus": 0}
     self.pri_cache = [0, 0]
     self.sec_cache = [0, 0]
@@ -333,7 +334,9 @@ class HeadlessReferee:
     if t: await asyncio.gather(*t, return_exceptions=True)
     self.pri_cache = [0, 0];
     self.sec_cache = [0, 0]
-    self._update_score()
+    # Reset 时也要更新内部状态
+    self._update_score_state()
+    self._broadcast_update("score_update")
 
   def _on_status_change(self, role, status):
     self.status[role] = status
@@ -341,47 +344,55 @@ class HeadlessReferee:
 
   def _on_pri_data(self, cur, typ, p, m, ts):
     self.pri_cache = [p, m]
-    self._record_log("PRIMARY", cur, typ, p, m, ts)
-    self._update_score()
+    # 1. 先计算最新的比赛得分
+    self._update_score_state()
+    # 2. 再将计算好的得分写入日志 (Event Type 和 Timestamp 用当前的)
+    self._record_log("PRIMARY", typ, ts)
+    # 3. 广播给前端
+    self._broadcast_update("score_update")
 
   def _on_sec_data(self, cur, typ, p, m, ts):
     self.sec_cache = [p, m]
-    self._record_log("SECONDARY", cur, typ, p, m, ts)
-    self._update_score()
+    # 同上：副设备数据进来，先融合计算，再保存融合后的状态
+    self._update_score_state()
+    self._record_log("SECONDARY", typ, ts)
+    self._broadcast_update("score_update")
 
-  def _record_log(self, role, cur, typ, p, m, ts):
-    """统一日志记录入口"""
-    # 获取当前上下文
-    group = match_state.get("current_group") or "Unknown_Group"
-    contestant = match_state.get("current_contestant") or "Unknown_Player"
-
-    # 调用新的 storage 接口，传入 group_name
-    storage_manager.log_data(group, self.index, role, (cur, typ, p, m, ts), contestant)
-
-  def _update_score(self):
+  def _update_score_state(self):
+    """仅计算分数，不广播，不存储"""
     if self.mode == "SINGLE":
-      # 单机模式：Plus - Minus
       self.score = {
         "total": self.pri_cache[0] - self.pri_cache[1],
         "plus": self.pri_cache[0],
         "minus": self.pri_cache[1]
       }
     else:
-      # 【关键修改】双机模式逻辑
-      # 要求：主设备的 TotalPlus 作为选手正分
-      #      副设备的 TotalPlus 作为选手负分 (因为副设备是专门用来扣分的)
-      #      总分 = 正分 - 负分
-
-      pri_plus = self.pri_cache[0]  # 主设备的总按键数 (Struct中的total_plus)
-      sec_plus = self.sec_cache[0]  # 副设备的总按键数 (Struct中的total_plus)
-
+      # 双机模式：Primary Plus 为正分，Secondary Plus 为负分
+      pri_plus = self.pri_cache[0]
+      sec_plus = self.sec_cache[0]
       self.score = {
         "total": pri_plus - sec_plus,
         "plus": pri_plus,
-        "minus": sec_plus  # 这里将副设备的 total_plus 视为选手的 total_minus
+        "minus": sec_plus
       }
 
-    self._broadcast_update("score_update")
+  def _record_log(self, role, event_type, ble_timestamp):
+    """
+    统一日志记录
+    注意：这里保存的是 self.score (即计算后的 Total/Plus/Minus)，
+    而不是设备的 raw data。这样 CSV 里的 CurrentTotal 就是真实的比赛分数。
+    """
+    group = match_state.get("current_group") or "Unknown_Group"
+    contestant = match_state.get("current_contestant") or "Unknown_Player"
+
+    event_details = {
+        "role": role,
+        "type": event_type,
+        "timestamp": ble_timestamp
+    }
+
+    # 调用 Storage Manager 的新接口
+    storage_manager.log_data(group, self.index, contestant, self.score, event_details)
 
   def _broadcast_update(self, msg_type):
     payload = {
