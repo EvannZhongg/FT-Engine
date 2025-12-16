@@ -28,7 +28,7 @@ export const useRefereeStore = defineStore('referee', {
   }),
 
   actions: {
-    // --- 新增：初始化配置 (从 Electron 获取端口) ---
+    // --- 初始化配置 (从 Electron 获取端口) ---
     async initConfig() {
       // 检查是否在 Electron 环境下
       if (window.electron && window.electron.ipcRenderer) {
@@ -104,6 +104,22 @@ export const useRefereeStore = defineStore('referee', {
         plus: score.plus,
         minus: score.minus,
         status: status
+      }
+    },
+
+    // 【新增】更新裁判名称 (用于 SetupWizard 修改名称并持久化)
+    updateRefereeName(index, name) {
+      // 1. 更新实时状态中的名称 (如果当前有实时状态)
+      if (this.referees[index]) {
+        this.referees[index].name = name
+      }
+      // 2. 更新项目配置中的名称 (如果已加载项目配置)
+      // 这确保 SetupWizard 读取到更新后的值，并在 save/start 时包含新名称
+      if (this.projectConfig && Array.isArray(this.projectConfig.referees)) {
+        const refConfig = this.projectConfig.referees.find(r => r.index === index)
+        if (refConfig) {
+          refConfig.name = name
+        }
       }
     },
 
@@ -203,7 +219,7 @@ export const useRefereeStore = defineStore('referee', {
         this.referees = {}
         config.referees.forEach(r => {
           this.referees[r.index] = {
-            name: r.name || `Referee ${r.index}`,
+            name: r.name || `Referee ${r.index}`, // 优先使用配置中的名称
             total: 0, plus: 0, minus: 0,
             status: {pri: 'connecting', sec: r.mode === 'DUAL' ? 'connecting' : 'n/a'}
           }

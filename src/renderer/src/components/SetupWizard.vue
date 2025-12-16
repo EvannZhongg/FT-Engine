@@ -117,8 +117,12 @@
       <div class="device-list-container">
         <div v-for="(bind, index) in bindings" :key="index" class="ref-card">
           <div class="card-header">
-            {{ $t('lbl_referee') }} {{ bind.index }}
-            <input v-model="bind.name" class="ref-name-input" :placeholder="$t('ph_judge_name')" />
+            <span>{{ $t('lbl_referee') }} {{ bind.index }}</span>
+            <input
+              v-model="bind.name"
+              class="ref-name-input"
+              :placeholder="$t('ph_judge_name')"
+            />
           </div>
           <div class="card-body">
             <div class="row">
@@ -353,7 +357,47 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await store
 .edit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #3d3d3d; }
 .scan-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; .target-group-select { display: flex; align-items: center; gap: 10px; select { width: 200px; padding: 5px; } } }
 .device-list-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
-.ref-card { background: #252526; border: 1px solid #3d3d3d; border-radius: 6px; .card-header { background: #333; padding: 8px 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; .ref-name-input { width: 120px; padding: 2px 5px; font-size: 0.9rem; background: #222; border: 1px solid #444; } } .card-body { padding: 10px; } .row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; label { width: 70px; font-size: 0.85rem; color: #888; margin: 0; } select { width: 180px; padding: 4px; font-size: 0.9rem; } } }
+.ref-card {
+  background: #252526;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+
+  .card-header {
+    background: #333;
+    padding: 8px 12px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    /* 这里替换了原有的样式，应用了你提供的样式 */
+    .ref-name-input {
+      background: #333;
+      border: 1px solid #555;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+      width: 140px; /* 建议加上宽度限制，避免输入框过小 */
+      font-size: 0.9rem;
+
+      &:focus {
+        border-color: #3498db;
+        outline: none;
+      }
+    }
+  }
+
+  .card-body { padding: 10px; }
+  .row {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    label { width: 70px; font-size: 0.85rem; color: #888; margin: 0; }
+    select { width: 180px; padding: 4px; font-size: 0.9rem; }
+  }
+}
 .actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #333; button { padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; &.btn-primary { background: #3498db; color: white; &:hover { background: #2980b9; } } &.btn-secondary { background: #555; color: white; &:hover { background: #666; } } &.btn-success { background: #2ecc71; color: white; &:hover { background: #27ae60; } } &.btn-scan { background: #f39c12; color: white; &:hover { background: #d35400; } } &:disabled { opacity: 0.5; cursor: not-allowed; } } }
 .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
 .connect-dialog { background: #252526; padding: 20px; width: 350px; border-radius: 8px; text-align: center; }

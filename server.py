@@ -436,6 +436,7 @@ class HeadlessReferee:
   def _broadcast_update(self, msg_type):
     payload = {
       "index": self.index,
+      "name": self.name,
       "score": self.score,
       "status": self.status
     }
