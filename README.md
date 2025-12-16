@@ -75,35 +75,27 @@
 2.  **创建并激活虚拟环境**（推荐）：
 
     ```bash
-
     python -m venv venv
 
     # Windows
-
     .\venv\Scripts\activate
 
     # Mac/Linux
-
     source venv/bin/activate
-
     ```
 
 3.  **安装依赖**：
 
     ```bash
-
     pip install -r requirements.txt
-
     ```
 
 4.  **测试运行后端**（可选，Electron 启动时通常会自动拉起，但开发调试建议单独运行）：
 
     ```bash
-
     python server.py
 
     # 服务默认运行在 http://127.0.0.1:8000
-
     ```
 
 
@@ -119,17 +111,13 @@
 1.  **安装依赖**：
 
     ```bash
-
     npm install
-
     ```
 
 2.  **启动开发模式**：
 
     ```bash
-
     npm run dev
-
     ```
 
     *注意：在开发模式下 (`is.dev` 为 true)，`src/main/index.js` 会尝试通过 `python server.py` 命令启动后端。请确保您的全局 Python 环境或 IDE 环境已正确配置依赖，或者手动先运行后端服务。*
@@ -145,17 +133,11 @@
 
 
 ```bash
-
 # 构建生产环境包
-
 npm run build
 
-
-
 # 仅构建并解压 (测试用)
-
 npm run build:unpack
-
 ```
 
 
@@ -195,23 +177,14 @@ npm run build:unpack
       * **分数更新 (`score_update`)**:
 
         ```json
-
         {
-
           "type": "score_update",
-
           "payload": {
-
             "index": 1,
-
             "score": { "total": 10, "plus": 15, "minus": 5 },
-
             "status": { "pri": "connected", "sec": "n/a" }
-
           }
-
         }
-
         ```
 
       * **上下文更新 (`context_update`)**:
@@ -241,9 +214,7 @@ npm run build:unpack
   * **Response**:
 
     ```json
-
     { "devices": [ { "name": "Counter-A1:B2", "address": "...", "rssi": -60 } ] }
-
     ```
 
 
@@ -259,17 +230,11 @@ npm run build:unpack
   * **Body**:
 
     ```json
-
     {
-
       "referees": [
-
         { "index": 1, "name": "Ref1", "mode": "DUAL", "pri_addr": "XX...", "sec_addr": "YY..." }
-
       ]
-
     }
-
     ```
 
 
@@ -367,15 +332,10 @@ npm run build:unpack
   * **Body**:
 
     ```json
-
     {
-
       "group": "GroupA",
-
       "players": ["Player1", "Player2"],
-
       "options": { "txt": true, "srt": true, "srt_mode": "REALTIME" }
-
     }
 
     ```
@@ -405,45 +365,26 @@ npm run build:unpack
 
 
 ```text
-
 ft-engine/
-
 ├── server.py              # 后端入口 (FastAPI)
-
+├── config.yaml            # 项目配置文件
 ├── requirements.txt       # Python 依赖
-
 ├── package.json           # 前端依赖与脚本
-
 ├── BLE_PROTOCOL.md        # 蓝牙通信协议规范
-
 ├── utils/                 # 后端工具模块
-
 │   ├── app_settings.py    # 全局配置管理
-
 │   ├── exporter.py        # 导出逻辑 (ZIP/SRT/TXT)
-
 │   └── storage.py         # 文件存储与 CSV 读写
-
 ├── resources/             # 静态资源 (图标等)
-
 └── src/
-
     ├── main/              # Electron 主进程
-
     │   └── index.js       # 窗口创建、Python 进程守护
-
     ├── preload/           # Electron 预加载脚本
-
     └── renderer/          # Vue 3 前端页面
-
         ├── src/
-
         │   ├── components/  # 核心组件 (ScoreBoard, SetupWizard, Overlay...)
-
         │   ├── stores/      # Pinia 状态管理 (refereeStore.js 封装了所有 API 调用)
-
         │   └── views/       # 页面路由
-
 ```
 
 
