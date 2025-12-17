@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
 import { join, dirname } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater' // --- 新增：引入自动更新模块 ---
 import icon from '../../resources/icon.png?asset'
 import yaml from 'js-yaml'
 import fs from 'fs'
@@ -107,6 +108,10 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    // --- 新增：窗口加载完成后自动检查更新 ---
+    if (!is.dev) {
+      autoUpdater.checkForUpdatesAndNotify()
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -139,6 +144,23 @@ app.whenReady().then(() => {
 
   createPyProc()
   createWindow()
+
+  // === 自动更新事件监听 (PC软件) ===
+
+  // 发现新版本
+  autoUpdater.on('update-available', () => {
+    if (mainWindow) mainWindow.webContents.send('update_available')
+  })
+
+  // 更新已下载，准备安装
+  autoUpdater.on('update-downloaded', () => {
+    if (mainWindow) mainWindow.webContents.send('update_downloaded')
+  })
+
+  // 前端触发：重启并安装更新
+  ipcMain.on('restart_app', () => {
+    autoUpdater.quitAndInstall()
+  })
 
   // === IPC 事件监听 ===
 

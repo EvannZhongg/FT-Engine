@@ -357,28 +357,28 @@ const exportCSV = () => {
   border-right: 1px solid #333;
   display: flex;
   flex-direction: column;
-  
+
   .sidebar-header {
     padding: 20px;
     font-weight: bold;
     font-size: 1.2rem;
     border-bottom: 1px solid #333;
   }
-  
+
   .group-list {
     flex: 1;
     overflow-y: auto;
   }
-  
+
   .group-item {
     padding: 15px 20px;
     cursor: pointer;
     border-bottom: 1px solid #2d2d2d;
-    
+
     &:hover { background: #2d2d2d; }
     &.active { background: #3498db; color: white; }
   }
-  
+
   .btn-back {
     margin: 20px;
     padding: 10px;
@@ -415,20 +415,20 @@ const exportCSV = () => {
     display: flex;
     align-items: center;
     /* 移除了之前的 h2 样式 */
-    
+
     .settings-inline {
       display: flex;
       align-items: center;
       background: #333;
       padding: 6px 12px;
       border-radius: 4px;
-      
+
       label {
         margin-right: 10px;
         font-size: 0.9rem;
         color: #ccc;
       }
-      
+
       input {
         background: #111;
         border: 1px solid #555;
@@ -473,7 +473,7 @@ const exportCSV = () => {
       background: #333;
       border-radius: 4px;
       padding: 3px;
-      
+
       button {
         background: transparent;
         border: none;
@@ -482,7 +482,7 @@ const exportCSV = () => {
         cursor: pointer;
         border-radius: 4px;
         font-weight: bold;
-        
+
         &.active {
           background: #3498db;
           color: white;

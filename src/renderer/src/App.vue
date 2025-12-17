@@ -54,7 +54,34 @@ const isOverlayWindow = computed(() => {
 })
 
 onMounted(() => {
+  // 1. 建立 WebSocket 连接 (原有逻辑)
   store.connectWebSocket()
+
+  // 2. 自动更新监听逻辑 (新增)
+  // 仅在 Electron 环境下运行
+  if (window.electron && window.electron.ipcRenderer) {
+    const ipc = window.electron.ipcRenderer
+
+    // 监听：发现新版本
+    ipc.on('update_available', () => {
+      console.log('Update available: Downloading in background...')
+      // 这里可以选择不打扰用户，让其静默下载
+      // 如果想要提示，可以取消注释下面这行：
+      // alert('发现新版本，正在后台下载...')
+    })
+
+    // 监听：下载完成
+    ipc.on('update_downloaded', () => {
+      // 延时一点点执行，避免界面刚加载完成就弹窗
+      setTimeout(() => {
+        const userChoice = confirm('新版本已下载完毕，是否立即重启并安装更新？')
+        if (userChoice) {
+          // 发送重启命令给主进程
+          ipc.send('restart_app')
+        }
+      }, 1000)
+    })
+  }
 })
 
 const handleNavigate = (view) => {
