@@ -12,8 +12,9 @@ let mainWindow = null
 let overlayWindow = null
 
 // --- 新增：读取配置端口函数 ---
+// 用于前端获取正确的后端端口 (优先读取 config.yaml)
 function getAppConfig() {
-  let port = 8000 // 默认端口
+  let port = 8000 // 默认端口，作为兜底
   try {
     let configPath = ''
     if (app.isPackaged) {
@@ -21,7 +22,7 @@ function getAppConfig() {
       configPath = join(dirname(app.getPath('exe')), 'config.yaml')
       console.log('Config Path (Prod):', configPath)
     } else {
-      // 开发时：使用 process.cwd() 获取项目根目录 (ft_engine)
+      // 开发时：使用 process.cwd() 获取项目根目录
       configPath = join(process.cwd(), 'config.yaml')
       console.log('Config Path (Dev):', configPath)
     }
@@ -66,6 +67,7 @@ const createPyProc = () => {
   pyProc = spawn(cmd, args)
 
   if (pyProc != null) {
+    console.log('[Electron] Python process started, PID:', pyProc.pid)
     pyProc.stdout.on('data', function (data) {
       console.log('py_stdout: ' + data)
     })
@@ -75,11 +77,26 @@ const createPyProc = () => {
   }
 }
 
-// --- 2. 关闭 Python 后端 ---
+// --- 2. 关闭 Python 后端 (关键修改) ---
 const exitPyProc = () => {
   if (pyProc != null) {
-    console.log('Killing Python process...')
-    pyProc.kill()
+    console.log('[Electron] Killing Python process...')
+
+    // 针对 Windows 系统使用 taskkill 强制结束进程树
+    if (process.platform === 'win32') {
+      try {
+        // /pid: 指定进程ID
+        // /f: 强制结束
+        // /t: 结束该进程及其启动的所有子进程
+        spawn('taskkill', ['/pid', pyProc.pid, '/f', '/t'])
+      } catch (e) {
+        console.error('[Electron] Failed to taskkill:', e)
+      }
+    } else {
+      // macOS / Linux 使用标准的 kill 信号
+      pyProc.kill()
+    }
+
     pyProc = null
   }
 }
@@ -278,11 +295,14 @@ app.whenReady().then(() => {
   })
 })
 
+// 确保在任何退出场景下都清理后端
 app.on('will-quit', () => {
   exitPyProc()
 })
 
 app.on('window-all-closed', () => {
+  // 显式清理，防止窗口关闭但 app 进程残留导致后端未退出
+  exitPyProc()
   if (process.platform !== 'darwin') {
     app.quit()
   }
