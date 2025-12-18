@@ -5,7 +5,8 @@ import { autoUpdater } from 'electron-updater' // --- 新增：引入自动更�
 import icon from '../../resources/icon.png?asset'
 import yaml from 'js-yaml'
 import fs from 'fs'
-const { spawn } = require('child_process')
+// 【修改 1】引入 execSync 用于同步执行命令
+const { spawn, execSync } = require('child_process')
 
 let pyProc = null
 let mainWindow = null
@@ -85,12 +86,13 @@ const exitPyProc = () => {
     // 针对 Windows 系统使用 taskkill 强制结束进程树
     if (process.platform === 'win32') {
       try {
-        // /pid: 指定进程ID
-        // /f: 强制结束
-        // /t: 结束该进程及其启动的所有子进程
-        spawn('taskkill', ['/pid', pyProc.pid, '/f', '/t'])
+        // 【修改 2】使用 execSync 同步执行，阻塞主进程直到杀进程命令完成
+        // /pid: 指定进程ID, /f: 强制结束, /t: 结束该进程及其启动的所有子进程
+        execSync(`taskkill /pid ${pyProc.pid} /f /t`)
+        console.log('[Electron] Taskkill executed successfully')
       } catch (e) {
-        console.error('[Electron] Failed to taskkill:', e)
+        // 忽略进程可能已经不存在的错误
+        console.error('[Electron] Failed to taskkill (process might be already dead):', e.message)
       }
     } else {
       // macOS / Linux 使用标准的 kill 信号
