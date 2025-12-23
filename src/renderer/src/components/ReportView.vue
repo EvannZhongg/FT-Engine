@@ -224,36 +224,52 @@ const getRawAverage = (player) => {
 // --- 计算逻辑 ---
 const sortedScaledRows = computed(() => {
   if (!currentGroup.value) return []
-  const players = currentGroup.value.players
-  const refCount = currentGroup.value.refCount
+  const players = currentGroup.value.players || []
+  // 确保 refCount 是数字，防止字符串 "2" 导致的问题
+  const refCount = Number(currentGroup.value.refCount) || 0
   const gName = currentGroup.value.name
   const maxScores = {}
 
+  // 1. 计算每位裁判的最高分 (Max Scores)
   for (let i = 1; i <= refCount; i++) {
     let max = 0
     players.forEach(p => {
-      const s = scoresData.value[gName]?.[p]?.[i]?.total || 0
+      // 安全获取总分，逻辑与 Raw View 保持一致
+      const scoreObj = scoresData.value[gName]?.[p]?.[i]
+      const s = scoreObj ? scoreObj.total : 0
       if (s > max) max = s
     })
     maxScores[i] = max
   }
 
+  // 2. 计算比例分 (Scaled Scores)
   const rows = players.map(p => {
     const scaledScores = {}
     let sumScaled = 0
     let validRefs = 0
+
     for (let i = 1; i <= refCount; i++) {
-      const raw = scoresData.value[gName]?.[p]?.[i]?.total || 0
-      const max = maxScores[i]
+      const scoreObj = scoresData.value[gName]?.[p]?.[i]
+      const raw = scoreObj ? scoreObj.total : 0
+      const max = maxScores[i] || 0
+
       let scaled = 0
-      if (max > 0) scaled = (raw / max) * scaleRatio.value
+      // 避免除以 0
+      if (max > 0) {
+        scaled = (raw / max) * scaleRatio.value
+      }
+
       scaledScores[i] = scaled
       sumScaled += scaled
       validRefs++
     }
+
+    // 计算最终平均分
     const finalScore = validRefs > 0 ? (sumScaled / validRefs) : 0
     return { player: p, scaledScores, finalScore }
   })
+
+  // 按最终得分降序排列
   return rows.sort((a, b) => b.finalScore - a.finalScore)
 })
 
