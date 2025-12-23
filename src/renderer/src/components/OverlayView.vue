@@ -141,7 +141,7 @@ let resizeObserver = null
 
 const previousScores = {}
 const realTimeData = reactive({})
-const BURST_THRESHOLD = 400
+const BURST_THRESHOLD = 300
 const DISPLAY_DURATION = 1000
 
 const defaultConfig = {
