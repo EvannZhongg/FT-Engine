@@ -314,6 +314,11 @@ onMounted(() => {
   setupResizeObserver()
   window.addEventListener('mousemove', onDrag)
   window.addEventListener('mouseup', stopDrag)
+
+  // 【修改】组件挂载完成后，主动通知主进程发送数据，解决窗口模式下数据不显示的竞态问题
+  if (window.electron) {
+    window.electron.ipcRenderer.send('overlay-ready')
+  }
 })
 
 onUnmounted(() => {
@@ -390,12 +395,10 @@ const changePlayer = async (delta) => {
 .dock-trigger-zone {
   position: absolute;
   top: 0;
-  /* left: 0; width: 100%;  <-- 删除这两行旧代码 */
 
-  /* 新增/修改如下：让触发区居中且限制宽度 */
   left: 50%;
   transform: translateX(-50%);
-  width: 600px; /* 你可以根据功能栏内容的实际宽度适当调整这个值 */
+  width: 400px; /* 你可以根据功能栏内容的实际宽度适当调整这个值 */
 
   height: 40px;
   z-index: 10000;

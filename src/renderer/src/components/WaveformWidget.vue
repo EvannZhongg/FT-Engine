@@ -58,7 +58,6 @@ const chartOptions = {
         color: '#888',
         maxRotation: 0,
         // 【核心修复】强制每隔 5 或 10 个单位（秒）画一个刻度
-        // 这样可以防止网格线随浮点数坐标滑动时发生抖动或重排
         stepSize: 5,
         autoSkip: true
       }
@@ -125,17 +124,31 @@ const resetChart = () => {
 watch(
   () => store.referees,
   (newRefs) => {
-    const allZero = Object.values(newRefs).every(r => r.total === 0)
+    // 【新增逻辑】定义严格的“系统重置”状态
+    // 当所有裁判的 total/plus/minus 全部为 0 时，视为触发了 Reset 操作
+    const isStrictReset = Object.values(newRefs).every(r =>
+      r.total === 0 && r.plus === 0 && r.minus === 0
+    )
+
+    // 如果当前正在记录，且检测到系统重置：
+    // 立即清空图表，停止记录，不再绘制“跌零”曲线
+    if (isRecording.value && isStrictReset) {
+      resetChart()
+      return
+    }
+
+    const allZeroTotal = Object.values(newRefs).every(r => r.total === 0)
 
     if (waitForZero.value) {
-      if (allZero) {
+      if (allZeroTotal) {
         waitForZero.value = false
       }
       return
     }
 
     if (!isRecording.value) {
-      if (!allZero) {
+      // 只有当出现非 0 分数时才开始记录
+      if (!allZeroTotal) {
         isRecording.value = true
         startTime.value = Date.now()
       } else {
@@ -167,10 +180,8 @@ watch(
     if (hasUpdate && chartRef.value && chartRef.value.chart) {
       const chart = chartRef.value.chart
 
-      // 【逻辑保留】动态计算滑动窗口，解决波形倒退问题
-      // 窗口大小设为 60秒，你可以根据需要调整
+      // 【逻辑保留】动态计算滑动窗口
       const WINDOW_DURATION = 60
-      // 右侧留白 2秒，防止贴边
       const RIGHT_PADDING = 2
 
       const newMax = timePoint + RIGHT_PADDING

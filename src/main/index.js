@@ -200,6 +200,15 @@ app.whenReady().then(() => {
     }
   })
 
+  // 【新增】监听 Overlay 准备就绪，发送数据（解决窗口模式下数据不显示的竞态问题）
+  ipcMain.on('overlay-ready', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    // 如果窗口实例上挂载了初始化数据，则发送给渲染进程
+    if (win && win.initialOverlayData) {
+      win.webContents.send('init-overlay-data', win.initialOverlayData)
+    }
+  })
+
   // 2. 打开悬浮窗
   ipcMain.on('open-overlay', (event, { bounds, initialState } = {}) => {
     if (overlayWindow) {
@@ -214,10 +223,17 @@ app.whenReady().then(() => {
     let winH = primaryDisplay.workAreaSize.height
 
     if (bounds) {
-      winX = Math.round(bounds.x)
-      winY = Math.round(bounds.y)
-      winW = Math.round(bounds.width)
-      winH = Math.round(bounds.height)
+      // 【修改】增加边界检查：如果目标窗口被最小化（坐标极小），强制重置到主屏幕
+      // 避免悬浮窗被创建在屏幕外导致不可见
+      if (bounds.x < -10000 || bounds.y < -10000) {
+          console.log('[Electron] Detected minimized/off-screen target, resetting overlay to primary display.')
+          // 保持默认的 winX/winY/winW/winH (主屏幕全屏)
+      } else {
+          winX = Math.round(bounds.x)
+          winY = Math.round(bounds.y)
+          winW = Math.round(bounds.width)
+          winH = Math.round(bounds.height)
+      }
     }
 
     overlayWindow = new BrowserWindow({
@@ -239,6 +255,11 @@ app.whenReady().then(() => {
       }
     })
 
+    // 【新增】将初始化数据暂存到窗口对象上，供 overlay-ready 事件提取
+    if (initialState) {
+        overlayWindow.initialOverlayData = initialState
+    }
+
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       overlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?mode=overlay`)
     } else {
@@ -247,6 +268,7 @@ app.whenReady().then(() => {
 
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
 
+    // 保留原有逻辑作为兜底（主要用于全屏模式下可能较快触发的情况）
     overlayWindow.webContents.on('did-finish-load', () => {
       if (initialState) {
         overlayWindow.webContents.send('init-overlay-data', initialState)
