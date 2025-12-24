@@ -7,11 +7,8 @@ import shutil
 
 # --- 1. 路径定义逻辑 (支持开发环境和打包后的 EXE 环境) ---
 if getattr(sys, 'frozen', False):
-  # 【修复】打包后：使用用户 AppData 目录
-  # Windows 下通常是 C:\Users\用户名\AppData\Roaming\FT-Engine
-  # 这样可以避免 Program Files 的权限问题
-  app_data_dir = os.getenv('APPDATA') if os.getenv('APPDATA') else os.path.expanduser("~")
-  PROJECT_ROOT = os.path.join(app_data_dir, "FT-Engine")
+  # 打包后：数据存在 EXE 同级目录
+  PROJECT_ROOT = os.path.dirname(sys.executable)
 else:
   # 开发时：数据存在项目根目录
   # 获取当前文件 (utils/storage.py) 的目录
@@ -22,12 +19,6 @@ else:
 # 基础数据存储路径
 BASE_DIR = os.path.join(PROJECT_ROOT, "match_data")
 
-# 确保根目录存在 (如果是 AppData 路径，可能连父文件夹都不存在，需要创建)
-if not os.path.exists(PROJECT_ROOT):
-    try:
-        os.makedirs(PROJECT_ROOT)
-    except Exception as e:
-        print(f"[Storage] Failed to create project root: {e}")
 
 class StorageManager:
   def __init__(self):
@@ -35,10 +26,7 @@ class StorageManager:
     print(f"[Storage] Data Path: {BASE_DIR}")
 
     if not os.path.exists(BASE_DIR):
-      try:
-        os.makedirs(BASE_DIR)
-      except Exception as e:
-        print(f"[Storage] Failed to create match_data dir: {e}")
+      os.makedirs(BASE_DIR)
     self.current_project_path = None
 
   def create_project(self, project_name, mode):
