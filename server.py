@@ -88,7 +88,8 @@ class ScannerManager:
     self.scanner = None
     self.is_scanning = False
     self.found_devices = {}
-    self.device_ttl = 8.0  # 缩短 TTL，让列表刷新更快
+    self.device_ttl = 8.0
+    self.init_error = None  # 【新增】用于记录启动失败的错误信息
 
   def _detection_callback(self, device, advertisement_data):
     self.found_devices[device.address] = {
@@ -98,11 +99,29 @@ class ScannerManager:
   async def start(self):
     if self.is_scanning: return
     print("[Scanner] Starting background scan...")
-    # 每次启动扫描前先清理过期太久的缓存
     self.get_active_devices()
-    self.scanner = BleakScanner(detection_callback=self._detection_callback)
-    await self.scanner.start()
-    self.is_scanning = True
+
+    # 【修改】增加 try-except 捕获蓝牙未开启的错误
+    try:
+      self.init_error = None  # 清除之前的错误
+      self.scanner = BleakScanner(detection_callback=self._detection_callback)
+      await self.scanner.start()
+      self.is_scanning = True
+    except Exception as e:
+      print(f"[Scanner] Start failed (Bluetooth might be off): {e}")
+      # 记录错误信息，但不要抛出异常，保证 Server 能正常启动
+      self.init_error = str(e)
+      self.is_scanning = False
+
+  async def stop(self):
+    if not self.is_scanning: return
+    print("[Scanner] Stopping background scan...")
+    try:
+      await self.scanner.stop()
+    except:
+      pass
+    self.scanner = None
+    self.is_scanning = False
 
   async def stop(self):
     if not self.is_scanning: return
@@ -512,6 +531,14 @@ async def tracking_endpoint(websocket: WebSocket):
 
 @app.get("/scan")
 async def scan_devices(flush: bool = False):
+  # 如果之前扫描没启动（例如蓝牙没开），现在尝试再次启动
+  if not scanner_manager.is_scanning:
+      await scanner_manager.start()
+
+  # 【新增】如果还是无法启动，返回错误信息给前端
+  if scanner_manager.init_error:
+      return {"devices": [], "error": "Bluetooth Error: " + scanner_manager.init_error}
+
   if flush:
     scanner_manager.clear_cache()
     await asyncio.sleep(1.5)

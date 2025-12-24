@@ -83,6 +83,7 @@
   "status_connected": "Connected",
   "status_error": "Error",
   "msg_timeout": "Connection timeout.",
+  "msg_bt_off": "Bluetooth is powered off or unavailable.",
   "btn_force": "Enter Anyway",
 
   "sb_btn_stop": "Stop",

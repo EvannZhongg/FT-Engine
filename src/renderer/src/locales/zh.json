@@ -83,6 +83,7 @@
   "status_connected": "已连接",
   "status_error": "连接失败",
   "msg_timeout": "连接超时，部分设备未响应。",
+  "msg_bt_off": "蓝牙未开启或不可用，请检查电脑蓝牙设置。",
   "btn_force": "强制进入",
 
   "sb_btn_stop": "结束",

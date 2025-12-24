@@ -455,7 +455,17 @@ const startScan = async (isRefresh = true) => {
   try {
     const allDevices = await store.scanDevices(isRefresh)
     scannedDevices.value = allDevices
-  } catch (e) { console.error("Scan error", e) }
+  } catch (e) {
+    console.error("Scan error", e)
+    // 【新增】判断错误信息，提示用户打开蓝牙
+    // 这里简单用 alert，你可以换成更漂亮的 UI 组件
+    const msg = e.message || ''
+    if (msg.includes('Bluetooth') || msg.includes('powered off')) {
+        alert(t('msg_bt_off') || "蓝牙未开启或不可用，请检查电脑蓝牙设置。\nBluetooth is powered off.")
+    } else {
+        alert("扫描失败: " + msg)
+    }
+  }
   finally { isScanning.value = false }
 }
 
