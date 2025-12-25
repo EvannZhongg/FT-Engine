@@ -153,5 +153,11 @@
   "lbl_history_list": "History Projects",
   "wiz_suffix_refs": "Refs",
   "ov_btn_close_settings": "Close",
-  "ov_contestant_waiting": "Waiting..."
+  "ov_contestant_waiting": "Waiting...",
+
+  "title_device_remarks": "Device Remarks Settings",
+  "msg_device_remarks": "Set custom names for devices (saved globally).",
+  "ph_add_remark": "Add remark...",
+  "msg_no_devices": "No devices found yet.",
+  "btn_save": "Save"
 }

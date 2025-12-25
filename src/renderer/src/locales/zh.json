@@ -153,5 +153,11 @@
   "lbl_history_list": "历史项目列表",
   "wiz_suffix_refs": "位裁判",
   "ov_btn_close_settings": "关闭",
-  "ov_contestant_waiting": "等待中..."
+  "ov_contestant_waiting": "等待中...",
+
+  "title_device_remarks": "设备备注设置",
+  "msg_device_remarks": "为设备设置自定义名称（全局保存）。",
+  "ph_add_remark": "添加备注...",
+  "msg_no_devices": "暂未发现设备。",
+  "btn_save": "保存"
 }

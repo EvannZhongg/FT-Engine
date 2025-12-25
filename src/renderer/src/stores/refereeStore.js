@@ -11,7 +11,11 @@ export const useRefereeStore = defineStore('referee', {
     ws: null,
     projectConfig: {name: '', mode: 'FREE', groups: []},
     currentContext: {groupName: '', contestantName: ''},
-    appSettings: {language: 'zh', suppress_reset_confirm: false},
+    appSettings: {
+      language: 'zh',
+      suppress_reset_confirm: false,
+      device_remarks: {}
+    },
     scoredPlayers: new Set()
   }),
 
@@ -110,9 +114,7 @@ export const useRefereeStore = defineStore('referee', {
     // --- 2. 全局设置管理 ---
     async fetchSettings() {
       try {
-        // 使用 this.apiBase
         const res = await axios.get(`${this.apiBase}/api/settings`)
-        // 合并到本地状态
         this.appSettings = {...this.appSettings, ...res.data}
       } catch (e) {
         console.error("Failed to fetch settings:", e)
@@ -123,13 +125,22 @@ export const useRefereeStore = defineStore('referee', {
       try {
         const payload = {}
         payload[key] = value
-        // 乐观更新本地状态
         this.appSettings[key] = value
-        // 发送给后端保存
         await axios.post(`${this.apiBase}/api/settings/update`, payload)
       } catch (e) {
         console.error("Failed to update setting:", e)
       }
+    },
+
+    // 【新增】保存设备备注
+    async saveDeviceRemark(address, remark) {
+      if (!this.appSettings.device_remarks) {
+        this.appSettings.device_remarks = {}
+      }
+      // 更新本地状态
+      this.appSettings.device_remarks[address] = remark
+      // 同步到后端
+      await this.updateSetting('device_remarks', this.appSettings.device_remarks)
     },
 
     // --- 3. 项目与组别管理 API ---

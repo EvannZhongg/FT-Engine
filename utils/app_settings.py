@@ -8,7 +8,8 @@ SETTINGS_FILE = "app_settings.json"
 DEFAULT_SETTINGS = {
     "language": "zh",
     "reset_shortcut": "Ctrl+G",
-    "suppress_reset_confirm": False  # 【新增】默认开启提醒
+    "suppress_reset_confirm": False,
+    "device_remarks": {}
 }
 
 class AppSettings:

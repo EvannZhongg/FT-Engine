@@ -89,7 +89,7 @@ class ScannerManager:
     self.is_scanning = False
     self.found_devices = {}
     self.device_ttl = 8.0
-    self.init_error = None  # 【新增】用于记录启动失败的错误信息
+    self.init_error = None
 
   def _detection_callback(self, device, advertisement_data):
     self.found_devices[device.address] = {
@@ -101,27 +101,15 @@ class ScannerManager:
     print("[Scanner] Starting background scan...")
     self.get_active_devices()
 
-    # 【修改】增加 try-except 捕获蓝牙未开启的错误
     try:
-      self.init_error = None  # 清除之前的错误
+      self.init_error = None
       self.scanner = BleakScanner(detection_callback=self._detection_callback)
       await self.scanner.start()
       self.is_scanning = True
     except Exception as e:
       print(f"[Scanner] Start failed (Bluetooth might be off): {e}")
-      # 记录错误信息，但不要抛出异常，保证 Server 能正常启动
       self.init_error = str(e)
       self.is_scanning = False
-
-  async def stop(self):
-    if not self.is_scanning: return
-    print("[Scanner] Stopping background scan...")
-    try:
-      await self.scanner.stop()
-    except:
-      pass
-    self.scanner = None
-    self.is_scanning = False
 
   async def stop(self):
     if not self.is_scanning: return
@@ -138,6 +126,9 @@ class ScannerManager:
     expired = [k for k, v in self.found_devices.items() if now - v['ts'] > self.device_ttl]
     for k in expired: del self.found_devices[k]
 
+    # 【新增】获取备注配置
+    remarks = app_settings.get("device_remarks") or {}
+
     results = []
     for entry in self.found_devices.values():
       d, adv = entry['device'], entry['adv']
@@ -153,7 +144,14 @@ class ScannerManager:
             break
 
       if is_target:
-        results.append({"name": real_name, "address": d.address, "rssi": adv.rssi})
+        # 【新增】如果有备注，附加到返回数据中
+        remark = remarks.get(d.address, "")
+        results.append({
+            "name": real_name,
+            "address": d.address,
+            "rssi": adv.rssi,
+            "remark": remark  # 返回备注
+        })
 
     results.sort(key=lambda x: x['rssi'], reverse=True)
     return results
