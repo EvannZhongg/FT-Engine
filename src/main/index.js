@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
 import { join, dirname } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater' // --- 新增：引入自动更新模块 ---
@@ -183,6 +183,39 @@ app.whenReady().then(() => {
 
   // === IPC 事件监听 ===
 
+  // === 新增：全局快捷键管理 ===
+
+  // 注册快捷键
+  ipcMain.on('register-global-shortcut', (event, shortcut) => {
+    // 先清空旧的，防止重复
+    globalShortcut.unregisterAll()
+
+    if (!shortcut) return
+
+    try {
+      // 注册新快捷键
+      const ret = globalShortcut.register(shortcut, () => {
+        console.log('[Electron] Global shortcut triggered:', shortcut)
+        // 收到快捷键后，通知主窗口执行操作
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('global-shortcut-action')
+        }
+      })
+
+      if (!ret) {
+        console.log('[Electron] Global shortcut registration failed')
+      }
+    } catch (error) {
+      console.error('[Electron] Error registering shortcut:', error)
+    }
+  })
+
+  // 注销快捷键 (通常在离开计分板页面时调用)
+  ipcMain.on('unregister-global-shortcut', () => {
+    globalShortcut.unregisterAll()
+    console.log('[Electron] Global shortcuts unregistered')
+  })
+
   // 0. 新增：前端获取服务端配置（端口）
   ipcMain.handle('get-server-config', () => {
     return appConfig
@@ -321,6 +354,7 @@ app.whenReady().then(() => {
 
 // 确保在任何退出场景下都清理后端
 app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
   exitPyProc()
 })
 

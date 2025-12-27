@@ -113,6 +113,10 @@
       <div class="modal-content">
         <h3>{{ $t('sb_btn_zero') }}</h3>
         <p>{{ $t('sb_msg_reset_zero') }}</p>
+        <label class="dont-ask-label">
+          <input type="checkbox" v-model="dontAskZeroTemp">
+          {{ $t('sb_lbl_dont_ask') }}
+        </label>
         <div class="modal-actions">
           <button class="btn-cancel" @click="showZeroDialog = false">{{ $t('btn_cancel') }}</button>
           <button class="btn-confirm warning" @click="confirmZeroReset">{{ $t('sb_btn_confirm') }}</button>
@@ -137,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue' // 引入 watch
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Zap, Monitor, RotateCcw } from 'lucide-vue-next'
@@ -146,12 +150,13 @@ const emit = defineEmits(['stop'])
 const store = useRefereeStore()
 const { t } = useI18n()
 
-// 默认开启自动模式
+// 状态定义
 const isAutoNext = ref(true)
 const showResetDialog = ref(false)
 const showZeroDialog = ref(false)
 const showAllDoneDialog = ref(false)
 const dontAskAgainTemp = ref(false)
+const dontAskZeroTemp = ref(false)
 const showWindowSelector = ref(false)
 const windowList = ref([])
 const selectedTargetWindow = ref("")
@@ -165,6 +170,24 @@ const currentGroupPlayers = computed(() => {
 const currentIdx = computed(() => currentGroupPlayers.value.indexOf(store.currentContext.contestantName))
 const isAllDone = computed(() => currentGroupPlayers.value.length > 0 && currentGroupPlayers.value.every(p => store.scoredPlayers.has(p)))
 
+// 执行快捷键动作
+const executeShortcutAction = () => {
+  console.log('Shortcut triggered! Auto mode:', isAutoNext.value)
+  if (isAutoNext.value) {
+    handleNextClick()
+  } else {
+    handleResetOnly()
+  }
+}
+
+// 封装注册逻辑
+const registerShortcut = (shortcut) => {
+  if (window.electron && window.electron.ipcRenderer && shortcut) {
+    console.log('[ScoreBoard] Registering shortcut:', shortcut)
+    window.electron.ipcRenderer.send('register-global-shortcut', shortcut)
+  }
+}
+
 onMounted(async () => {
   store.connectWebSocket()
   store.fetchSettings()
@@ -176,15 +199,38 @@ onMounted(async () => {
     await store.fetchScoredPlayers(store.currentContext.groupName)
     initResumeState()
   }
+
+  // 1. 初始注册
+  const initialShortcut = store.appSettings.reset_shortcut || "Ctrl+G"
+  registerShortcut(initialShortcut)
+
+  // 监听触发
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.on('global-shortcut-action', executeShortcutAction)
+  }
+
   window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+// 【新增】监听设置变化，实时更新快捷键
+watch(() => store.appSettings.reset_shortcut, (newVal, oldVal) => {
+  if (newVal && newVal !== oldVal) {
+    registerShortcut(newVal)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+
   if (window.electron && window.electron.ipcRenderer) {
+    // 2. 退出时注销
+    window.electron.ipcRenderer.send('unregister-global-shortcut')
+    window.electron.ipcRenderer.removeAllListeners('global-shortcut-action')
     window.electron.ipcRenderer.send('close-overlay')
   }
 })
+
+// ... (以下逻辑保持不变)
 
 const initResumeState = async () => {
   if (isAllDone.value) {
@@ -217,9 +263,6 @@ const confirmSmartNext = async () => {
   if (dontAskAgainTemp.value) store.updateSetting('suppress_reset_confirm', true)
   showResetDialog.value = false
   const currentName = store.currentContext.contestantName
-
-  // 【修改】使用 broadcastPlayerScored 代替 markAsScored
-  // 这样主窗口操作 Next 时，悬浮窗或其他端也能知道该选手已完成
   store.broadcastPlayerScored(currentName)
 
   const nextPlayer = findNextUnscoredPlayer()
@@ -289,9 +332,19 @@ const changePlayer = async (delta) => {
 
 const switchContext = async (name) => { await store.setMatchContext(store.currentContext.groupName, name) }
 
-const handleResetOnly = () => { showZeroDialog.value = true }
+const handleResetOnly = () => {
+  if (store.appSettings.suppress_zero_confirm) {
+    confirmZeroReset()
+  } else {
+    dontAskZeroTemp.value = false
+    showZeroDialog.value = true
+  }
+}
 
 const confirmZeroReset = async () => {
+  if (dontAskZeroTemp.value) {
+    store.updateSetting('suppress_zero_confirm', true)
+  }
   showZeroDialog.value = false
   await store.resetAll()
 }
@@ -340,122 +393,27 @@ const confirmOverlay = async () => {
 </script>
 
 <style scoped lang="scss">
+/* 保持原有样式不变 */
 .score-board { height: 100%; display: flex; flex-direction: column; background: transparent; }
-
-/* 头部样式 */
-.header {
-  height: 72px;
-  background: #1e1e1e;
-  border-bottom: 1px solid #333;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  flex-shrink: 0;
-  gap: 20px;
-}
-
+.header { height: 72px; background: #1e1e1e; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); flex-shrink: 0; gap: 20px; }
 .header-section { display: flex; align-items: center; height: 100%; }
 .header-section.left { width: 120px; }
 .header-section.center { flex: 1; justify-content: center; gap: 15px; min-width: 0; }
 .header-section.right { justify-content: flex-end; gap: 12px; }
-
-/* 通用按钮 */
-.btn-tool {
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: #2b2b2b;
-  color: #eee;
-  font-size: 0.9rem;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover { background: #383838; border-color: #555; }
-  &:active { transform: translateY(1px); }
-}
-
-.btn-stop {
-  background: transparent; border: 1px solid #444; color: #aaa;
-  &:hover { color: #fff; border-color: #666; background: #333; }
-}
-
-/* 导航条 */
-.player-navigator {
-  display: flex; align-items: center; background: #111; border-radius: 6px; border: 1px solid #333; padding: 3px; height: 38px;
-}
-.nav-arrow {
-  background: transparent; border: none; color: #666; width: 30px; height: 100%; cursor: pointer; border-radius: 4px;
-  &:hover { background: #222; color: #fff; }
-}
+.btn-tool { height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: #2b2b2b; color: #eee; font-size: 0.9rem; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.2s ease; &:hover { background: #383838; border-color: #555; } &:active { transform: translateY(1px); } }
+.btn-stop { background: transparent; border: 1px solid #444; color: #aaa; &:hover { color: #fff; border-color: #666; background: #333; } }
+.player-navigator { display: flex; align-items: center; background: #111; border-radius: 6px; border: 1px solid #333; padding: 3px; height: 38px; }
+.nav-arrow { background: transparent; border: none; color: #666; width: 30px; height: 100%; cursor: pointer; border-radius: 4px; &:hover { background: #222; color: #fff; } }
 .select-wrapper { position: relative; margin: 0 5px; }
-.player-select {
-  background: transparent; color: white; border: none; font-size: 1.1rem; font-weight: bold; text-align: center; outline: none; appearance: none; cursor: pointer; min-width: 120px; padding: 0 10px;
-  option { background: #333; }
-  option.option-scored { color: #2ecc71; }
-}
-
-/* --- 右侧按钮特有样式修正 --- */
-
-/* 自动切换按钮 */
-.btn-auto {
-  background: #252526;
-  border: 1px solid #444;
-  position: relative;
-  /* 移除原有的宽度伸缩问题 */
-
-  /* 圆点样式：始终存在 */
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    margin-left: 4px;
-    background: #444; /* 默认：灭灯状态（深灰） */
-    transition: all 0.3s ease; /* 颜色过渡 */
-  }
-
-  /* 激活状态 */
-  &.active {
-    background: rgba(46, 204, 113, 0.15);
-    border-color: #2ecc71;
-    color: #2ecc71;
-
-    /* 亮灯：变绿并增加光晕 */
-    .status-dot {
-      background: #2ecc71;
-      box-shadow: 0 0 6px rgba(46, 204, 113, 0.8);
-    }
-  }
-}
-
+.player-select { background: transparent; color: white; border: none; font-size: 1.1rem; font-weight: bold; text-align: center; outline: none; appearance: none; cursor: pointer; min-width: 120px; padding: 0 10px; option { background: #333; } option.option-scored { color: #2ecc71; } }
+.btn-auto { background: #252526; border: 1px solid #444; position: relative; .status-dot { width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: #444; transition: all 0.3s ease; } &.active { background: rgba(46, 204, 113, 0.15); border-color: #2ecc71; color: #2ecc71; .status-dot { background: #2ecc71; box-shadow: 0 0 6px rgba(46, 204, 113, 0.8); } } }
 .divider-vertical { width: 1px; height: 24px; background: #333; margin: 0 4px; }
 .btn-overlay { background: #2980b9; color: white; &:hover { background: #3498db; } }
-.btn-next {
-  background: #27ae60; color: white; min-width: 130px; justify-content: center; position: relative;
-  &:hover { background: #2ecc71; }
-}
-
-.btn-zero {
-  background: rgba(192, 57, 43, 0.2); color: #e74c3c; border: 1px solid rgba(192, 57, 43, 0.4); padding: 0 10px; min-width: 50px; justify-content: center; position: relative;
-  &:hover { background: #c0392b; color: white; }
-}
-
-.shortcut-tag {
-  position: absolute; top: -8px; right: -5px; font-size: 0.65rem; background: #111; color: #aaa; border: 1px solid #444; padding: 1px 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-  &.warning { border-color: #c0392b; color: #e74c3c; }
-}
-
-/* 计分卡 */
+.btn-next { background: #27ae60; color: white; min-width: 130px; justify-content: center; position: relative; &:hover { background: #2ecc71; } }
+.btn-zero { background: rgba(192, 57, 43, 0.2); color: #e74c3c; border: 1px solid rgba(192, 57, 43, 0.4); padding: 0 10px; min-width: 50px; justify-content: center; position: relative; &:hover { background: #c0392b; color: white; } }
+.shortcut-tag { position: absolute; top: -8px; right: -5px; font-size: 0.65rem; background: #111; color: #aaa; border: 1px solid #444; padding: 1px 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); &.warning { border-color: #c0392b; color: #e74c3c; } }
 .panels-container { flex: 1; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); grid-auto-rows: max-content; gap: 15px; overflow-y: auto; align-content: start; }
 .score-card { background: #ecf0f1; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); color: #2c3e50; .card-top { width: 100%; display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; font-weight: bold; } .status-indicators { display: flex; gap: 4px; } .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bdc3c7; &.connected { background: #2ecc71; } } .score-main { font-size: 4rem; font-weight: 800; line-height: 1; margin: 10px 0; } .score-detail { font-size: 1rem; color: #666; background: #ddd; padding: 2px 10px; border-radius: 10px; } }
-
-/* 弹窗样式 */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
 .modal-content { background: #2b2b2b; padding: 25px; border-radius: 8px; width: 380px; text-align: center; color: white; h3 { margin-top: 0; } }
 .modal-actions { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
