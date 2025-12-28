@@ -56,6 +56,7 @@
   "lbl_column": "列",
   "lbl_rows": "行",
   "btn_confirm_import": "确认导入",
+  "btn_confirm": "确定",
 
   "wiz_s3_title": "设备绑定",
   "wiz_target_group": "选择要启动的组别:",
@@ -67,6 +68,7 @@
   "lbl_mode": "模式",
   "lbl_pri": "主设备",
   "lbl_sec": "副设备",
+  "lbl_penalty": "重点扣分",
   "opt_single": "单机",
   "opt_dual": "双机",
   "opt_select_default": "-- 请选择 --",
@@ -149,6 +151,11 @@
   "rpt_srt_burst": "实时连击",
   "rpt_btn_dl_zip": "下载 ZIP",
   "rpt_msg_fail": "导出失败！",
+
+  "rpt_btn_adv": "高级设置",
+  "rpt_title_adv": "高级设置",
+  "rpt_lbl_show_penalty": "显示重点扣分",
+  "rpt_hint_penalty": "启用后，将自动计算双机裁判的重点扣分，并从最终折算分中扣除。\n规则：多数优先；若数量相等，取大值。",
 
   "lbl_history_list": "历史项目列表",
   "wiz_suffix_refs": "位裁判",

@@ -348,7 +348,7 @@ class HeadlessReferee:
     self.pri_dev = None
     self.sec_dev = None
     # 初始分数
-    self.score = {"total": 0, "plus": 0, "minus": 0}
+    self.score = {"total": 0, "plus": 0, "minus": 0, "penalty": 0}
     self.pri_cache = [0, 0]
     self.sec_cache = [0, 0]
     self.status = {"pri": "disconnected", "sec": "disconnected" if mode == "DUAL" else "n/a"}
@@ -401,16 +401,23 @@ class HeadlessReferee:
       self.score = {
         "total": self.pri_cache[0] - self.pri_cache[1],
         "plus": self.pri_cache[0],
-        "minus": self.pri_cache[1]
+        "minus": self.pri_cache[1],
+        "penalty": 0  # 单机模式暂无此概念，置为 0
       }
     else:
       # 双机模式：Primary Plus 为正分，Secondary Plus 为负分
       pri_plus = self.pri_cache[0]
       sec_plus = self.sec_cache[0]
+
+      # 【新增】重点扣分 = 主机 Minus + 副机 Minus
+      # 且不影响 Total 分数的计算
+      major_penalty = self.pri_cache[1] + self.sec_cache[1]
+
       self.score = {
         "total": pri_plus - sec_plus,
         "plus": pri_plus,
-        "minus": sec_plus
+        "minus": sec_plus,
+        "penalty": major_penalty
       }
 
   def _record_log(self, role, event_type, ble_timestamp):

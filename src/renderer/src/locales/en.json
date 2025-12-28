@@ -56,6 +56,7 @@
   "lbl_column": "Column",
   "lbl_rows": "rows",
   "btn_confirm_import": "Confirm Import",
+  "btn_confirm": "Confirm",
 
   "wiz_s3_title": "Bind Devices",
   "wiz_target_group": "Target Group:",
@@ -67,6 +68,7 @@
   "lbl_mode": "Mode",
   "lbl_pri": "Primary",
   "lbl_sec": "Secondary",
+  "lbl_penalty": "Penalty",
   "opt_single": "Single Device",
   "opt_dual": "Dual Device",
   "opt_select_default": "-- Select --",
@@ -149,6 +151,11 @@
   "rpt_srt_burst": "Real-time Burst",
   "rpt_btn_dl_zip": "Download ZIP",
   "rpt_msg_fail": "Export failed!",
+
+  "rpt_btn_adv": "Advanced",
+  "rpt_title_adv": "Advanced Settings",
+  "rpt_lbl_show_penalty": "Show Major Penalty",
+  "rpt_hint_penalty": "Enable to deduct major penalties from final score.\nRule: Majority wins, then max value.",
 
   "lbl_history_list": "History Projects",
   "wiz_suffix_refs": "Refs",

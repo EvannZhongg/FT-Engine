@@ -91,9 +91,10 @@ class StorageManager:
       try:
         with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
           writer = csv.writer(f)
+          # 【修改】增加 MajorPenalty 列
           writer.writerow([
             "SystemTime", "BLE_Timestamp", "DeviceRole",
-            "CurrentTotal", "EventType", "TotalPlus", "TotalMinus"
+            "CurrentTotal", "EventType", "TotalPlus", "TotalMinus", "MajorPenalty"
           ])
       except Exception as e:
         print(f"[Storage Init Error] {e}")
@@ -112,7 +113,8 @@ class StorageManager:
           score_data.get('total', 0),
           event_details.get('type', 0),
           score_data.get('plus', 0),
-          score_data.get('minus', 0)
+          score_data.get('minus', 0),
+          score_data.get('penalty', 0)  # 【新增】写入 penalty 数据
         ])
     except Exception as e:
       print(f"[Storage Log Error] {e}")
@@ -186,10 +188,14 @@ class StorageManager:
           if c_name not in report[group_name]:
             report[group_name][c_name] = {}
 
+          # 【修改】读取 MajorPenalty
+          p_val = last_row.get("MajorPenalty") or last_row.get("penalty") or 0
+
           report[group_name][c_name][ref_idx] = {
             "total": int(last_row.get("CurrentTotal") or 0),
             "plus": int(last_row.get("TotalPlus") or 0),
-            "minus": int(last_row.get("TotalMinus") or 0)
+            "minus": int(last_row.get("TotalMinus") or 0),
+            "penalty": int(p_val)  # 【新增】存入内存
           }
 
     return report

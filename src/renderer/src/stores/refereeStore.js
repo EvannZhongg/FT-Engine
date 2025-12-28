@@ -83,7 +83,6 @@ export const useRefereeStore = defineStore('referee', {
 
     updateScore(payload) {
       const {index, score, status} = payload
-      // 确保对象存在
       if (!this.referees[index]) {
         this.referees[index] = {name: `Referee ${index}`}
       }
@@ -92,6 +91,7 @@ export const useRefereeStore = defineStore('referee', {
         total: score.total,
         plus: score.plus,
         minus: score.minus,
+        penalty: score.penalty || 0, // 【新增】同步重点扣分
         status: status
       }
     },
@@ -215,15 +215,15 @@ export const useRefereeStore = defineStore('referee', {
     // 启动比赛：发送设备绑定信息
     async startMatch(config) {
       try {
-        // config: { referees: [...] }
         await axios.post(`${this.apiBase}/setup`, config)
 
         // 重置本地状态
         this.referees = {}
         config.referees.forEach(r => {
           this.referees[r.index] = {
-            name: r.name || `Referee ${r.index}`, // 优先使用配置中的名称
-            total: 0, plus: 0, minus: 0,
+            name: r.name || `Referee ${r.index}`,
+            mode: r.mode, // 【新增】保存模式，用于 UI 判断是否显示扣分
+            total: 0, plus: 0, minus: 0, penalty: 0,
             status: {pri: 'connecting', sec: r.mode === 'DUAL' ? 'connecting' : 'n/a'}
           }
         })

@@ -78,6 +78,7 @@
       </div>
 
       <div class="score-body">
+
         <div v-if="config.displayMode === 'SPLIT'" class="score-grid-row">
           <div class="grid-cell right-align">
             <span class="score-val plus">+{{ ref.plus }}</span>
@@ -87,17 +88,31 @@
           </div>
           <div class="grid-cell left-align">
             <span class="score-val minus">-{{ ref.minus }}</span>
+            <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
+              <span class="score-divider">/</span>
+              <span class="score-val penalty-text">-{{ ref.penalty }}</span>
+            </template>
           </div>
         </div>
 
         <div v-else-if="config.displayMode === 'TOTAL'" class="score-single-row">
           <span class="score-val total">{{ ref.total }}</span>
+          <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
+             <span class="score-divider total-divider">/</span>
+             <span class="score-val penalty-text total-penalty">-{{ ref.penalty }}</span>
+          </template>
         </div>
 
         <div v-else-if="config.displayMode === 'COMBINED'" class="score-combined-col">
           <div class="combined-total">{{ ref.total }}</div>
           <div class="combined-detail">
-            <span class="mini-plus">+{{ ref.plus }}</span> / <span class="mini-minus">-{{ ref.minus }}</span>
+            <span class="mini-plus">+{{ ref.plus }}</span>
+            <span class="score-divider-small">/</span>
+            <span class="mini-minus">-{{ ref.minus }}</span>
+            <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
+               <span class="score-divider-small">/</span>
+               <span class="penalty-text">-{{ ref.penalty }}</span>
+            </template>
           </div>
         </div>
 
@@ -118,6 +133,13 @@
             <transition name="pop">
               <span v-if="getRealTimeScore(refKey, 'minus') > 0" class="score-val minus rt-val">
                 -{{ getRealTimeScore(refKey, 'minus') }}
+              </span>
+            </transition>
+
+            <transition name="pop">
+              <span v-if="ref.mode === 'DUAL' && getRealTimeScore(refKey, 'penalty') > 0" class="rt-penalty-container">
+                <span class="score-divider">/</span>
+                <span class="score-val penalty-text">-{{ getRealTimeScore(refKey, 'penalty') }}</span>
               </span>
             </transition>
           </div>
@@ -192,16 +214,27 @@ const cardStyle = computed(() => {
 watch(() => store.referees, (newRefs) => {
   Object.keys(newRefs).forEach(key => {
     const ref = newRefs[key]
+
+    // 初始化 previousScores
     if (!previousScores[key]) {
-      previousScores[key] = { plus: ref.plus, minus: ref.minus }
+      previousScores[key] = { plus: ref.plus, minus: ref.minus, penalty: ref.penalty || 0 }
       return
     }
+
     const prev = previousScores[key]
     const deltaPlus = ref.plus - prev.plus
     const deltaMinus = ref.minus - prev.minus
-    previousScores[key] = { plus: ref.plus, minus: ref.minus }
+    const deltaPenalty = (ref.penalty || 0) - (prev.penalty || 0)
+
+    // 更新缓存
+    previousScores[key] = { plus: ref.plus, minus: ref.minus, penalty: ref.penalty || 0 }
+
+    // 触发连击逻辑
     if (deltaPlus > 0) processBurstScore(key, 'plus', deltaPlus)
     if (deltaMinus > 0) processBurstScore(key, 'minus', deltaMinus)
+    if (deltaPenalty > 0) processBurstScore(key, 'penalty', deltaPenalty)
+
+    // 重置逻辑
     if (ref.plus === 0 && ref.minus === 0) {
       clearRealTimeScore(key)
     }
@@ -212,18 +245,26 @@ const processBurstScore = (key, type, delta) => {
   if (!realTimeData[key]) {
     realTimeData[key] = {
       plus: { val: 0, lastTime: 0, timer: null },
-      minus: { val: 0, lastTime: 0, timer: null }
+      minus: { val: 0, lastTime: 0, timer: null },
+      penalty: { val: 0, lastTime: 0, timer: null }
     }
   }
+  // 补全可能缺失的 penalty 对象
+  if (!realTimeData[key].penalty) {
+    realTimeData[key].penalty = { val: 0, lastTime: 0, timer: null }
+  }
+
   const slot = realTimeData[key][type]
   const now = Date.now()
   const timeDiff = now - slot.lastTime
+
   if (slot.val === 0 || timeDiff > BURST_THRESHOLD) {
     slot.val = delta
   } else {
     slot.val += delta
   }
   slot.lastTime = now
+
   if (slot.timer) clearTimeout(slot.timer)
   slot.timer = setTimeout(() => {
     slot.val = 0
@@ -234,11 +275,14 @@ const clearRealTimeScore = (key) => {
   if (realTimeData[key]) {
     realTimeData[key].plus.val = 0
     realTimeData[key].minus.val = 0
+    if (realTimeData[key].penalty) {
+       realTimeData[key].penalty.val = 0
+    }
   }
 }
 
 const getRealTimeScore = (key, type) => {
-  return realTimeData[key] ? realTimeData[key][type].val : 0
+  return (realTimeData[key] && realTimeData[key][type]) ? realTimeData[key][type].val : 0
 }
 
 const onDockEnter = () => { isDockVisible.value = true; setIgnoreMouse(false) }
@@ -262,7 +306,11 @@ if (window.electron) {
       initCardPositions()
       Object.keys(data.referees).forEach(k => {
         if (data.referees[k]) {
-           previousScores[k] = { plus: data.referees[k].plus, minus: data.referees[k].minus }
+           previousScores[k] = {
+             plus: data.referees[k].plus,
+             minus: data.referees[k].minus,
+             penalty: data.referees[k].penalty || 0
+           }
         }
       })
     }
@@ -577,5 +625,30 @@ const changePlayer = async (delta) => {
 .resize-handle:hover::after {
   opacity: 1;
   border-color: #999;
+}
+
+/* 【修改】重点扣分通用样式 */
+.penalty-text {
+  color: #ff6b6b; /* 醒目红 */
+  font-weight: 800;
+  font-size: inherit; /* 默认继承，便于在 Combined 模式下自动变小 */
+}
+
+/* 实时模式下需要包含 divider 的容器 */
+.rt-penalty-container {
+  display: inline-block;
+  margin-left: 5px;
+}
+
+/* Total 模式下的 Divider */
+.total-divider {
+  vertical-align: middle;
+}
+
+/* Combined 模式下的 Divider */
+.score-divider-small {
+  margin: 0 4px;
+  color: #666;
+  font-weight: lighter;
 }
 </style>

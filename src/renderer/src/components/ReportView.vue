@@ -19,10 +19,9 @@
     <div class="main-content" v-if="currentGroup">
       <div class="top-bar">
         <div class="bar-left">
-          <div v-if="viewMode === 'SCALED'" class="settings-inline">
-            <label>{{ $t('rpt_lbl_ratio') }}</label>
-            <input type="number" v-model.number="scaleRatio" min="1" max="100">
-          </div>
+          <button v-if="viewMode === 'SCALED'" class="btn-advanced" @click="showAdvancedModal = true">
+            ⚙️ {{ $t('rpt_btn_adv') || 'Advanced' }}
+          </button>
         </div>
 
         <div class="bar-right">
@@ -50,6 +49,9 @@
               <th v-for="i in currentGroup.refCount" :key="i">
                 {{ getRefName(i) }}
               </th>
+              <th v-if="enablePenalty" class="th-penalty">
+                 {{ $t('lbl_penalty') || 'Penalty' }}
+              </th>
               <th>{{ $t('rpt_col_final') }}</th>
             </tr>
           </thead>
@@ -59,6 +61,10 @@
               <td class="fixed-col">{{ row.player }}</td>
               <td v-for="i in currentGroup.refCount" :key="i">
                 {{ row.scaledScores[i].toFixed(2) }}
+              </td>
+              <td v-if="enablePenalty" class="penalty-col">
+                 <span v-if="row.penaltyVal > 0">-{{ row.penaltyVal }}</span>
+                 <span v-else class="dim">-</span>
               </td>
               <td class="highlight">{{ row.finalScore.toFixed(2) }}</td>
             </tr>
@@ -86,6 +92,9 @@
                   <div class="sub-score">
                     <span class="plus">+{{ getRawDetail(player, i).plus }}</span> /
                     <span class="minus">{{ getRawDetail(player, i).minus }}</span>
+                    <span v-if="getRawDetail(player, i).penalty > 0" class="raw-penalty-tag">
+                      (-{{ getRawDetail(player, i).penalty }})
+                    </span>
                   </div>
                 </div>
               </td>
@@ -144,6 +153,29 @@
              </div>
          </div>
     </div>
+
+    <div v-if="showAdvancedModal" class="modal-overlay" @click.self="showAdvancedModal = false">
+      <div class="modal-content advanced-modal">
+        <h3>{{ $t('rpt_title_adv') }}</h3> <div class="adv-row">
+          <label>{{ $t('rpt_lbl_ratio') }} (%)</label>
+          <input type="number" v-model.number="scaleRatio" min="1" max="100">
+        </div>
+
+        <div class="adv-row toggle-row">
+          <label>
+            <input type="checkbox" v-model="enablePenalty">
+            <span>{{ $t('rpt_lbl_show_penalty') }}</span>
+          </label>
+
+          <p class="adv-hint">{{ $t('rpt_hint_penalty') }}</p>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-confirm" @click="showAdvancedModal = false">{{ $t('btn_confirm') }}</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -162,6 +194,10 @@ const currentGroup = ref(null)
 const scoresData = ref({})
 const viewMode = ref('SCALED')
 const scaleRatio = ref(60)
+
+// 高级设置状态
+const showAdvancedModal = ref(false)
+const enablePenalty = ref(false)
 
 // 导出相关状态
 const selectedPlayers = ref([])
@@ -183,18 +219,14 @@ onMounted(async () => {
   }
 })
 
-// --- 新增：获取裁判名称的方法 ---
+// --- 获取裁判名称 ---
 const getRefName = (index) => {
-  // 检查当前组别是否有 referees 配置信息
   if (currentGroup.value && Array.isArray(currentGroup.value.referees)) {
-    // 查找对应 index 的裁判配置
     const refConfig = currentGroup.value.referees.find(r => r.index === index)
-    // 如果找到了且有名字，返回名字
     if (refConfig && refConfig.name) {
       return refConfig.name
     }
   }
-  // 降级显示：Ref 1, Ref 2...
   return `${t('rpt_col_ref')} ${index}`
 }
 
@@ -207,8 +239,10 @@ const getRawScoreObj = (player, refIdx) => {
 
 const getRawDetail = (player, refIdx) => {
   const obj = getRawScoreObj(player, refIdx)
-  if (!obj) return { total: '-', plus: '-', minus: '-' }
-  return { total: obj.total, plus: obj.plus, minus: obj.minus }
+  if (!obj) return { total: '-', plus: '-', minus: '-', penalty: 0 }
+  // 读取 penalty，兼容不同大小写
+  const p = Number(obj.penalty) || Number(obj.MajorPenalty) || Number(obj.majorPenalty) || 0
+  return { total: obj.total, plus: obj.plus, minus: obj.minus, penalty: p }
 }
 
 const getRawAverage = (player) => {
@@ -221,20 +255,69 @@ const getRawAverage = (player) => {
   return sum / currentGroup.value.refCount
 }
 
-// --- 计算逻辑 ---
+// --- 核心：重点扣分标准计算逻辑 ---
+const getStandardPenalty = (player) => {
+  if (!currentGroup.value) return 0
+
+  const gName = currentGroup.value.name
+  const refCount = Number(currentGroup.value.refCount) || 0
+  const referees = currentGroup.value.referees || []
+
+  const penalties = []
+
+  // 1. 收集所有双机裁判的扣分
+  for (let i = 1; i <= refCount; i++) {
+    const refConfig = referees.find(r => r.index === i)
+    // 仅统计双机模式裁判
+    if (refConfig && refConfig.mode === 'DUAL') {
+      const scoreObj = scoresData.value[gName]?.[player]?.[i]
+      if (scoreObj) {
+        const p = Number(scoreObj.penalty) || Number(scoreObj.MajorPenalty) || Number(scoreObj.majorPenalty) || 0
+        penalties.push(p)
+      } else {
+        penalties.push(0)
+      }
+    }
+  }
+
+  if (penalties.length === 0) return 0
+
+  // 2. 众数原则 (Majority Rule)
+  const counts = {}
+  penalties.forEach(p => {
+    counts[p] = (counts[p] || 0) + 1
+  })
+
+  let maxFreq = 0
+  Object.values(counts).forEach(c => {
+    if (c > maxFreq) maxFreq = c
+  })
+
+  // 3. 筛选众数
+  const candidates = Object.keys(counts)
+    .filter(k => counts[k] === maxFreq)
+    .map(Number)
+
+  // 4. 若有多个众数，取大值 (Max Value Rule)
+  if (candidates.length > 0) {
+    return Math.max(...candidates)
+  }
+
+  return 0
+}
+
+// --- 计算与排序 ---
 const sortedScaledRows = computed(() => {
   if (!currentGroup.value) return []
   const players = currentGroup.value.players || []
-  // 确保 refCount 是数字，防止字符串 "2" 导致的问题
   const refCount = Number(currentGroup.value.refCount) || 0
   const gName = currentGroup.value.name
   const maxScores = {}
 
-  // 1. 计算每位裁判的最高分 (Max Scores)
+  // 计算裁判最高分
   for (let i = 1; i <= refCount; i++) {
     let max = 0
     players.forEach(p => {
-      // 安全获取总分，逻辑与 Raw View 保持一致
       const scoreObj = scoresData.value[gName]?.[p]?.[i]
       const s = scoreObj ? scoreObj.total : 0
       if (s > max) max = s
@@ -242,7 +325,6 @@ const sortedScaledRows = computed(() => {
     maxScores[i] = max
   }
 
-  // 2. 计算比例分 (Scaled Scores)
   const rows = players.map(p => {
     const scaledScores = {}
     let sumScaled = 0
@@ -254,7 +336,6 @@ const sortedScaledRows = computed(() => {
       const max = maxScores[i] || 0
 
       let scaled = 0
-      // 避免除以 0
       if (max > 0) {
         scaled = (raw / max) * scaleRatio.value
       }
@@ -264,12 +345,23 @@ const sortedScaledRows = computed(() => {
       validRefs++
     }
 
-    // 计算最终平均分
-    const finalScore = validRefs > 0 ? (sumScaled / validRefs) : 0
-    return { player: p, scaledScores, finalScore }
+    let avgScore = validRefs > 0 ? (sumScaled / validRefs) : 0
+    let penaltyVal = 0
+
+    // 应用扣分逻辑
+    if (enablePenalty.value) {
+      penaltyVal = getStandardPenalty(p)
+      avgScore = avgScore - penaltyVal
+    }
+
+    return {
+      player: p,
+      scaledScores,
+      finalScore: avgScore,
+      penaltyVal
+    }
   })
 
-  // 按最终得分降序排列
   return rows.sort((a, b) => b.finalScore - a.finalScore)
 })
 
@@ -310,7 +402,7 @@ const confirmBatchExport = async () => {
   }
 }
 
-// --- CSV 导出逻辑 (修改为使用真实名字) ---
+// --- CSV 导出逻辑 ---
 const exportCSV = () => {
   if (!currentGroup.value) return
 
@@ -319,24 +411,27 @@ const exportCSV = () => {
 
   if (viewMode.value === 'SCALED') {
     let header = ['Rank', 'Contestant']
-    // 修改：使用真实名字
     for(let i=1; i<=refCount; i++) header.push(`${getRefName(i)} (Scaled)`)
+
+    // 导出时也包含扣分列
+    if (enablePenalty.value) header.push('Major Penalty')
+
     header.push('Final Score')
     csvContent += header.join(',') + "\n"
 
     sortedScaledRows.value.forEach((row, idx) => {
       let line = [idx + 1, row.player]
       for(let i=1; i<=refCount; i++) line.push(row.scaledScores[i].toFixed(2))
+
+      if (enablePenalty.value) line.push(row.penaltyVal)
+
       line.push(row.finalScore.toFixed(2))
       csvContent += line.join(',') + "\n"
     })
 
   } else {
     let header = ['Contestant']
-    // 修改：使用真实名字
-    for(let i=1; i<=refCount; i++) {
-      header.push(getRefName(i))
-    }
+    for(let i=1; i<=refCount; i++) header.push(getRefName(i))
     header.push('Average Score')
     csvContent += header.join(',') + "\n"
 
@@ -361,7 +456,6 @@ const exportCSV = () => {
   link.click()
   document.body.removeChild(link)
 }
-
 </script>
 
 <style scoped lang="scss">
@@ -422,7 +516,7 @@ const exportCSV = () => {
   align-items: center;
   margin-bottom: 20px;
   background: #252526;
-  padding: 12px 20px; /* 增加内边距 */
+  padding: 12px 20px;
   border-radius: 6px;
   border: 1px solid #333;
   min-height: 50px;
@@ -430,43 +524,30 @@ const exportCSV = () => {
   .bar-left {
     display: flex;
     align-items: center;
-    /* 移除了之前的 h2 样式 */
 
-    .settings-inline {
-      display: flex;
-      align-items: center;
-      background: #333;
+    .btn-advanced {
+      background: #555;
+      color: #eee;
+      border: 1px solid #666;
       padding: 6px 12px;
       border-radius: 4px;
-
-      label {
-        margin-right: 10px;
-        font-size: 0.9rem;
-        color: #ccc;
-      }
-
-      input {
-        background: #111;
-        border: 1px solid #555;
-        color: white;
-        padding: 4px 8px;
-        width: 60px;
-        border-radius: 3px;
-        text-align: center;
-      }
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+      &:hover { background: #666; border-color: #888; }
     }
   }
 
   .bar-right {
     display: flex;
     align-items: center;
-    gap: 20px; /* 增加按钮间距，使布局更均衡 */
+    gap: 20px;
 
     button.btn-export-details {
       background: #e67e22;
       color: white;
       border: none;
-      padding: 8px 16px; /* 增加按钮填充 */
+      padding: 8px 16px;
       border-radius: 4px;
       cursor: pointer;
       font-size: 0.9rem;
@@ -494,7 +575,7 @@ const exportCSV = () => {
         background: transparent;
         border: none;
         color: #aaa;
-        padding: 6px 18px; /* 增加点击区域 */
+        padding: 6px 18px;
         cursor: pointer;
         border-radius: 4px;
         font-weight: bold;
@@ -512,12 +593,58 @@ const exportCSV = () => {
 table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 600px; }
 th, td { text-align: center; padding: 12px 10px; border-bottom: 1px solid #333; }
 th { background: #333; position: sticky; top: 0; z-index: 10; color: #eee; }
+.th-penalty { color: #e74c3c; background: rgba(231, 76, 60, 0.1); border-bottom-color: #c0392b; }
 .striped-table tbody tr:nth-child(odd) { background-color: rgba(52, 152, 219, 0.08); &:hover { background-color: rgba(52, 152, 219, 0.15); } }
 .striped-table tbody tr:nth-child(even) { background-color: rgba(231, 76, 60, 0.08); &:hover { background-color: rgba(231, 76, 60, 0.15); } }
 .fixed-col { text-align: left; font-weight: bold; color: #ddd; border-right: 1px solid #333; background: inherit; }
 .highlight { color: #2ecc71; font-weight: bold; font-size: 1.1rem; }
+.penalty-col { font-weight: bold; color: #e74c3c; background: rgba(231, 76, 60, 0.05); }
+.raw-penalty-tag { color: #e74c3c; font-weight: bold; margin-left: 5px; font-size: 0.8rem; }
+.dim { color: #444; }
 .score-cell { display: flex; flex-direction: column; align-items: center; .main-score { font-size: 1.1rem; font-weight: bold; color: white; } .sub-score { font-size: 0.8rem; color: #aaa; margin-top: 2px; } .plus { color: #aaa; } .minus { color: #e74c3c; } }
 
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
-.modal-content.export-modal { background: #2b2b2b; padding: 25px; border-radius: 8px; width: 550px; color: white; display: flex; flex-direction: column; h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; } .modal-body-layout { display: flex; gap: 20px; height: 300px; } .section-players { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #444; padding-right: 15px; .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.9rem; color: #aaa; } .select-all-label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: #3498db; font-weight: bold; } .player-scroll-list { flex: 1; overflow-y: auto; background: #222; border: 1px solid #444; border-radius: 4px; padding: 5px; .player-item-row { display: flex; align-items: center; padding: 5px 8px; cursor: pointer; &:hover { background: #333; } } .p-name { margin-left: 8px; font-size: 0.9rem; } } } .section-options { width: 200px; padding-left: 5px; h4 { margin: 0 0 15px 0; color: #ccc; font-size: 0.95rem; } .options-grid { display: flex; flex-direction: column; gap: 15px; } .opt-row { display: flex; align-items: center; gap: 10px; cursor: pointer; input { width: 18px; height: 18px; } } .sub-opts { margin-left: 28px; display: flex; flex-direction: column; gap: 5px; select { background: #444; color: white; padding: 6px; border: 1px solid #666; border-radius: 4px; width: 100%; } } } .modal-actions { margin-top: 20px; border-top: 1px solid #444; padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px; } .btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; &:disabled { background: #555; cursor: not-allowed; } } .btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; } }
+.modal-content { background: #2b2b2b; padding: 25px; border-radius: 8px; color: white; display: flex; flex-direction: column; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+
+/* 高级设置模态框样式 */
+.advanced-modal {
+  width: 400px;
+  h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 20px; }
+  .adv-row {
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    label { font-size: 0.95rem; color: #ccc; }
+    input[type=number] {
+      background: #111; border: 1px solid #555; color: white; padding: 8px; border-radius: 4px; width: 100%;
+    }
+    &.toggle-row {
+      flex-direction: column;
+      label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: white; font-weight: bold; }
+      input[type=checkbox] { width: 18px; height: 18px; }
+    }
+  }
+  .adv-hint {
+    font-size: 0.85rem;
+    color: #888;
+    margin: 0;
+    padding-left: 26px;
+    line-height: 1.4;
+    white-space: pre-wrap; /* 【关键】必须加上这一行，否则翻译中的换行符无效 */
+  }
+}
+
+/* 导出模态框原有样式 */
+.export-modal {
+  width: 550px;
+  h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; }
+  .modal-body-layout { display: flex; gap: 20px; height: 300px; }
+  .section-players { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #444; padding-right: 15px; .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.9rem; color: #aaa; } .select-all-label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: #3498db; font-weight: bold; } .player-scroll-list { flex: 1; overflow-y: auto; background: #222; border: 1px solid #444; border-radius: 4px; padding: 5px; .player-item-row { display: flex; align-items: center; padding: 5px 8px; cursor: pointer; &:hover { background: #333; } } .p-name { margin-left: 8px; font-size: 0.9rem; } } }
+  .section-options { width: 200px; padding-left: 5px; h4 { margin: 0 0 15px 0; color: #ccc; font-size: 0.95rem; } .options-grid { display: flex; flex-direction: column; gap: 15px; } .opt-row { display: flex; align-items: center; gap: 10px; cursor: pointer; input { width: 18px; height: 18px; } } .sub-opts { margin-left: 28px; display: flex; flex-direction: column; gap: 5px; select { background: #444; color: white; padding: 6px; border: 1px solid #666; border-radius: 4px; width: 100%; } } }
+}
+
+.modal-actions { margin-top: 20px; border-top: 1px solid #444; padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px; }
+.btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; &:disabled { background: #555; cursor: not-allowed; } }
+.btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
 </style>

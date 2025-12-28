@@ -78,7 +78,14 @@
           </div>
         </div>
         <div class="score-main">{{ ref.total }}</div>
-        <div class="score-detail"><span class="plus">+{{ ref.plus }}</span> / <span class="minus">-{{ ref.minus }}</span></div>
+
+        <div class="score-detail">
+          <span class="plus">+{{ ref.plus }}</span> / <span class="minus">-{{ ref.minus }}</span>
+
+          <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
+             / <span class="penalty-text">-{{ ref.penalty }}</span>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -424,4 +431,10 @@ const confirmOverlay = async () => {
 .large { width: 100%; margin-bottom: 10px; padding: 12px; font-size: 1rem; }
 .win-select { width: 100%; padding: 8px; margin: 15px 0; background: #111; color: white; border: 1px solid #444; }
 .dont-ask-label { display: block; margin-top: 15px; color: #aaa; cursor: pointer; input { margin-right: 5px; } }
+
+/* 【修改】重点扣分样式 - 使用与 .btn-zero 相似的醒目红色 */
+.penalty-text {
+  color: #c0392b;
+  font-weight: 800;
+}
 </style>
