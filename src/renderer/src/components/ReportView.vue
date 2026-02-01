@@ -154,7 +154,7 @@
          </div>
     </div>
 
-    <div v-if="showAdvancedModal" class="modal-overlay" @click.self="showAdvancedModal = false">
+    <div v-if="showAdvancedModal" class="modal-overlay" @click.self="showAdvancedModal = false; showPenaltyHint = false">
       <div class="modal-content advanced-modal">
         <h3>{{ $t('rpt_title_adv') }}</h3> <div class="adv-row">
           <label>{{ $t('rpt_lbl_ratio') }} (%)</label>
@@ -162,16 +162,27 @@
         </div>
 
         <div class="adv-row toggle-row">
-          <label>
+          <label class="penalty-toggle">
             <input type="checkbox" v-model="enablePenalty">
-            <span>{{ $t('rpt_lbl_show_penalty') }}</span>
+            <span class="penalty-label" @mouseenter="showPenaltyHint = true" @mouseleave="showPenaltyHint = false">
+              {{ $t('rpt_lbl_show_penalty') }}
+              <button
+                type="button"
+                class="info-btn"
+                :aria-label="$t('rpt_hint_penalty')"
+                @click.stop="togglePenaltyHint"
+              >
+                <Info :size="12" />
+              </button>
+              <div v-if="showPenaltyHint" class="info-pop">
+                {{ $t('rpt_hint_penalty') }}
+              </div>
+            </span>
           </label>
-
-          <p class="adv-hint">{{ $t('rpt_hint_penalty') }}</p>
         </div>
 
         <div class="modal-actions">
-          <button class="btn-confirm" @click="showAdvancedModal = false">{{ $t('btn_confirm') }}</button>
+          <button class="btn-confirm" @click="showAdvancedModal = false; showPenaltyHint = false">{{ $t('btn_confirm') }}</button>
         </div>
       </div>
     </div>
@@ -183,6 +194,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
+import { Info } from 'lucide-vue-next'
 
 const props = defineProps(['projectDir'])
 const emit = defineEmits(['back'])
@@ -198,6 +210,7 @@ const scaleRatio = ref(60)
 // 高级设置状态
 const showAdvancedModal = ref(false)
 const enablePenalty = ref(false)
+const showPenaltyHint = ref(false)
 
 // 导出相关状态
 const selectedPlayers = ref([])
@@ -218,6 +231,10 @@ onMounted(async () => {
     }
   }
 })
+
+const togglePenaltyHint = () => {
+  showPenaltyHint.value = !showPenaltyHint.value
+}
 
 // --- 获取裁判名称 ---
 const getRefName = (index) => {
@@ -625,14 +642,10 @@ th { background: #333; position: sticky; top: 0; z-index: 10; color: #eee; }
       input[type=checkbox] { width: 18px; height: 18px; }
     }
   }
-  .adv-hint {
-    font-size: 0.85rem;
-    color: #888;
-    margin: 0;
-    padding-left: 26px;
-    line-height: 1.4;
-    white-space: pre-wrap; /* 【关键】必须加上这一行，否则翻译中的换行符无效 */
-  }
+  .penalty-label { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+  .info-btn { background: transparent; border: 1px solid #555; color: #bbb; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; }
+  .info-btn:hover { color: #fff; border-color: #888; }
+  .info-pop { position: absolute; top: 22px; left: 0; background: #111; border: 1px solid #444; color: #ddd; padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4; width: 260px; z-index: 10; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); white-space: pre-wrap; }
 }
 
 /* 导出模态框原有样式 */

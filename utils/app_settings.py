@@ -9,7 +9,8 @@ DEFAULT_SETTINGS = {
     "language": "zh",
     "reset_shortcut": "Ctrl+G",
     "suppress_reset_confirm": False,
-    "device_remarks": {}
+    "device_remarks": {},
+    "obs_protect_main": False
 }
 
 class AppSettings:

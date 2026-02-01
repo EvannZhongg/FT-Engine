@@ -36,6 +36,7 @@ const chartRef = ref(null)
 const isRecording = ref(false)
 const startTime = ref(null)
 const waitForZero = ref(false)
+const lastTimePoint = ref(0)
 
 const COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22']
 
@@ -106,6 +107,7 @@ const initDatasets = () => {
 const resetChart = () => {
   isRecording.value = false
   startTime.value = null
+  lastTimePoint.value = 0
 
   // 【逻辑保留】重置时清除手动设置的 min/max，恢复初始状态
   if (chartRef.value && chartRef.value.chart) {
@@ -157,7 +159,12 @@ watch(
     }
 
     const now = Date.now()
-    const timePoint = parseFloat(((now - startTime.value) / 1000).toFixed(1))
+    const rawTime = (now - startTime.value) / 1000
+    let timePoint = Math.round(rawTime * 1000) / 1000
+    if (timePoint <= lastTimePoint.value) {
+      timePoint = lastTimePoint.value + 0.001
+    }
+    lastTimePoint.value = timePoint
 
     if (rawDatasets.value.length !== Object.keys(newRefs).length) {
       initDatasets()

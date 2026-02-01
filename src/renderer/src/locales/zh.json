@@ -11,6 +11,10 @@
   "nav_reset_shortcut": "重置快捷键",
   "nav_press_keys": "按下按键...",
   "nav_click_set": "点击设置",
+  "nav_toggle_off": "不启用",
+  "nav_toggle_on": "启用",
+  "nav_obs_protect": "OBS 隔离",
+  "nav_obs_protect_hint": "启用后主窗口不会被 OBS 捕获，悬浮窗不受影响。",
 
   "home_hero_title": "欢迎回来",
   "home_hero_subtitle": "准备好开始下一场比赛了吗？",

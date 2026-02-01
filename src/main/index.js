@@ -19,8 +19,14 @@ function getAppConfig() {
   try {
     let configPath = ''
     if (app.isPackaged) {
-      // 打包后：config.yaml 在 exe 同级目录
-      configPath = join(dirname(app.getPath('exe')), 'config.yaml')
+      // 打包后：优先 resources，其次 exe 同级目录
+      const resourceConfig = join(process.resourcesPath, 'config.yaml')
+      const exeConfig = join(dirname(app.getPath('exe')), 'config.yaml')
+      if (fs.existsSync(resourceConfig)) {
+        configPath = resourceConfig
+      } else {
+        configPath = exeConfig
+      }
       console.log('Config Path (Prod):', configPath)
     } else {
       // 开发时：使用 process.cwd() 获取项目根目录
@@ -221,6 +227,13 @@ app.whenReady().then(() => {
     return appConfig
   })
 
+  // 0.1 主窗口内容保护（避免 OBS 捕获）
+  ipcMain.on('set-main-content-protection', (event, enabled) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setContentProtection(!!enabled)
+    }
+  })
+
   // 1. 最大化/还原窗口控制
   ipcMain.on('window-max', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -287,6 +300,8 @@ app.whenReady().then(() => {
         webSecurity: false
       }
     })
+    // 确保悬浮窗不启用内容保护（避免影响 OBS 捕获）
+    overlayWindow.setContentProtection(false)
 
     // 【新增】将初始化数据暂存到窗口对象上，供 overlay-ready 事件提取
     if (initialState) {

@@ -11,6 +11,10 @@
   "nav_reset_shortcut": "Reset Shortcut",
   "nav_press_keys": "Press keys...",
   "nav_click_set": "Click to set",
+  "nav_toggle_off": "Off",
+  "nav_toggle_on": "On",
+  "nav_obs_protect": "OBS protection",
+  "nav_obs_protect_hint": "Hide the main window from OBS capture; overlay remains visible.",
 
   "home_hero_title": "Welcome Back",
   "home_hero_subtitle": "Ready for the next match?",

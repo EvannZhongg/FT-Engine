@@ -15,7 +15,8 @@ export const useRefereeStore = defineStore('referee', {
       language: 'zh',
       suppress_reset_confirm: false,
       suppress_zero_confirm: false,
-      device_remarks: {}
+      device_remarks: {},
+      obs_protect_main: false
     },
     scoredPlayers: new Set()
   }),
