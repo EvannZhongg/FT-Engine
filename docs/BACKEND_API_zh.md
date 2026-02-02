@@ -28,7 +28,7 @@ Language: [English](BACKEND_API.md) | [中文](BACKEND_API_zh.md)
   - 说明：更新一个或多个设置项
   - 请求：
     ```json
-    { "reset_shortcut": "Ctrl+1" }
+    { "reset_shortcut": "Ctrl+G" }
     ```
   - 响应：
     ```json
