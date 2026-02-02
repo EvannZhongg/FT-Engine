@@ -1,5 +1,7 @@
 # Backend API (FT Engine)
 
+Language: [English](BACKEND_API.md) | [中文](BACKEND_API_zh.md)
+
 ## Base
 - Default base URL: `http://127.0.0.1:8000`
 - Port comes from `my-clicker-app/config.yaml` (`server_port`)
