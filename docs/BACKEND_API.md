@@ -28,7 +28,7 @@ Language: [English](BACKEND_API.md) | [中文](BACKEND_API_zh.md)
   - Description: update one or more settings
   - Body:
     ```json
-    { "reset_shortcut": "Ctrl+1" }
+    { "reset_shortcut": "Ctrl+G" }
     ```
   - Response:
     ```json
