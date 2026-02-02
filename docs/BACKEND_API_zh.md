@@ -2,7 +2,7 @@
 
 ## 基础信息
 - 默认地址：`http://127.0.0.1:8000`
-- 端口来源：`my-clicker-app/config.yaml` 的 `server_port`
+- 端口来源：`config.yaml` 的 `server_port`
 - 无鉴权（本机访问）
 
 ## REST API
