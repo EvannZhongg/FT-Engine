@@ -147,13 +147,9 @@ ft-engine/
 ```
 
 
-
-## 🔗 蓝牙协议
-
-
-
-如果您希望开发适配该系统的硬件，请参阅 [BLE\_PROTOCOL.md](https://www.google.com/search?q=./BLE_PROTOCOL.md)。
-
+## 文档
+- 后端接口：[docs/BACKEND_API_zh.md](docs/BACKEND_API_zh.md)
+- BLE 协议：[docs/BLE_PROTOCOL_zh.md](docs/BLE_PROTOCOL_zh.md)
 
 
 -----
