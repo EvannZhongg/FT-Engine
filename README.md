@@ -67,7 +67,7 @@ Note: In dev mode (`is.dev` is true), `src/main/index.js` starts the backend via
 
 ## Documentation
 - Backend API: `docs/BACKEND_API.md`
-- BLE Protocol: `docs/BLE_PROTOCOL.md`
+- BLE Protocol: `docs/BLE_PROTOCOL.md`**
 
 ## License
 Proprietary / Custom License (contact Freakthrow for details).
