@@ -90,9 +90,8 @@ npm run dev
 Note: In dev mode (`is.dev` is true), `src/main/index.js` starts the backend via `python server.py`.
 
 ## Documentation
-- Backend API: `docs/BACKEND_API.md`
-- BLE Protocol: `docs/BLE_PROTOCOL.md`
-- [BLE Protocol](docs/BLE_PROTOCOL.md)
+- Backend API: [docs/BACKEND_API.md](docs/BACKEND_API.md)
+- BLE Protocol: [docs/BLE_PROTOCOL.md](docs/BLE_PROTOCOL.md)
 
 ## License
 Proprietary / Custom License (contact Freakthrow for details).
