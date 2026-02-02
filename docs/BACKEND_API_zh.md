@@ -1,5 +1,7 @@
 # 后端接口文档（FT Engine）
 
+Language: [English](BACKEND_API.md) | [中文](BACKEND_API_zh.md)
+
 ## 基础信息
 - 默认地址：`http://127.0.0.1:8000`
 - 端口来源：`config.yaml` 的 `server_port`
