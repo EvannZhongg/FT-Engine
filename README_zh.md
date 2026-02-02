@@ -1,6 +1,6 @@
 # FT Engine - Professional Electronic Referee System
 
-
+语言：[English](README.md) | [中文](README_zh.md)
 
 **FT Engine** 是一款专业的电子裁判系统，专为需要精确计分、实时数据展示和多设备协同的竞技比赛设计（如悠悠球比赛）。该系统结合了 BLE 蓝牙硬件接入、实时波形分析、OBS 直播悬浮窗以及完整的赛事数据管理功能。
 
