@@ -4,7 +4,6 @@ Language: [English](README.md) | [中文](README_zh.md)
 
 FT Engine is a professional electronic referee system for competitions that require accurate scoring, real-time visualization, and multi-device coordination. It combines BLE clicker hardware, real-time waveform analysis, OBS-friendly overlays, and end-to-end match data management.
 
-The application code lives under `my-clicker-app/`.
 
 ## Key Features
 - Multi-mode support: Free Mode and Tournament Mode
@@ -63,8 +62,6 @@ Prerequisites:
 - Node.js (v16+ recommended)
 - Python 3.9+
 - Bluetooth enabled on the host machine
-
-All commands below run inside `my-clicker-app/`.
 
 ### Backend (Python)
 ```bash
