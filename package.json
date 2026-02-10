@@ -2,14 +2,15 @@
   "name": "ft-engine",
   "productName": "FT Engine",
   "version": "1.5.0",
-  "description": "Professional Electronic Referee System by freakthrow",
   "main": "./out/main/index.js",
   "author": {
     "name": "Evan Zhong",
     "email": "freakthrow@gmail.com"
   },
+  "description": "Professional Electronic Referee System by freakthrow",
   "homepage": "https://evannzhongg.github.io/",
   "scripts": {
+    "clean": "rm -rf ./dist",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "start": "electron-vite preview",
@@ -18,7 +19,8 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:mac": "npm run build && electron-builder --mac",
+    "build:mac": "npm run build && electron-builder --mac && node scripts/rename-mac-artifacts.js",
+    "build:mac:all": "npm run build && electron-builder --mac --arm64 --x64 && node scripts/rename-mac-artifacts.js",
     "build:linux": "npm run build && electron-builder --linux"
   },
   "build": {
@@ -45,13 +47,6 @@
       {
         "from": "./utils",
         "to": "utils"
-      },
-      {
-        "from": "./backend-engine.exe",
-        "to": "backend-engine.exe",
-        "filter": [
-          "**/*"
-        ]
       }
     ],
     "publish": [
@@ -72,7 +67,60 @@
           ]
         }
       ],
-      "legalTrademarks": "Freakthrow™"
+      "legalTrademarks": "Freakthrow™",
+      "extraResources": [
+        {
+          "from": "./backend-engine.exe",
+          "to": "backend-engine.exe",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "identity": null,
+      "target": [
+        "dmg"
+      ],
+      "icon": "resources/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "extendInfo": {
+        "NSBluetoothAlwaysUsageDescription": "FT Engine 需要访问蓝牙以连接计分控制器",
+        "NSBluetoothPeripheralUsageDescription": "FT Engine 需要访问蓝牙以连接计分控制器"
+      },
+      "extraResources": [
+        {
+          "from": "./backend-engine",
+          "to": "backend-engine",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "backgroundColor": "#1e1e1e",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

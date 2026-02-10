@@ -55,6 +55,11 @@ export const useRefereeStore = defineStore('referee', {
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
+          // 调试打分延迟：在控制台看收到时间，与后端 [BLE]/[Score]/[WS] 日志对比
+          if (import.meta.env.DEV && (msg.type === 'score_update' || msg.type === 'status_update')) {
+            const ts = typeof performance !== 'undefined' ? performance.now().toFixed(1) : Date.now()
+            console.log(`[WS] recv ${msg.type} t=${ts}`, msg.payload?.score ?? msg.payload)
+          }
           if (msg.type === 'score_update' || msg.type === 'status_update') {
             this.updateScore(msg.payload)
           } else if (msg.type === 'context_update') {
@@ -82,18 +87,20 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     updateScore(payload) {
-      const {index, score, status} = payload
+      const { index, score, status } = payload
       if (!this.referees[index]) {
-        this.referees[index] = {name: `Referee ${index}`}
+        this.referees[index] = { name: `Referee ${index}` }
       }
-      this.referees[index] = {
+      const next = {
         ...this.referees[index],
         total: score.total,
         plus: score.plus,
         minus: score.minus,
-        penalty: score.penalty || 0, // 【新增】同步重点扣分
-        status: status
+        penalty: score.penalty || 0,
+        // 仅当 payload 带 status 时才覆盖，避免被空值覆盖导致指示灯闪灭
+        ...(status != null && { status })
       }
+      this.referees[index] = next
     },
 
     // 【新增】更新裁判名称 (用于 SetupWizard 修改名称并持久化)

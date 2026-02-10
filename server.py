@@ -30,6 +30,13 @@ STANDARD_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 
 DEVICE_NAME_PREFIX = "Counter-"
 
+# 调试：打分延迟定位。终端运行前设置 DEBUG_SCORE_LATENCY=1
+# 会打印 BLE 收到 -> 广播发出 各阶段耗时；前端可在控制台看 WS 收到时间
+DEBUG_SCORE_LATENCY = os.environ.get("DEBUG_SCORE_LATENCY", "").strip() == "1"
+
+# 主事件循环引用，用于在 BLE 回调（可能非主线程）里安全地调度写盘任务
+_main_loop = None
+
 # ==========================================================
 # 全局比赛状态 (State Management)
 # ==========================================================
@@ -214,9 +221,13 @@ class HeadlessDeviceNode:
 
       self._emit_status("connected")
 
-      # 开启心跳
-      if self._heartbeat_task: self._heartbeat_task.cancel()
-      self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+      # 心跳：Windows/Linux 保留主动读特征值检测死链；macOS 上不跑心跳，避免 CoreBluetooth 下 read_gatt_char 触发周期性断连
+      if self._heartbeat_task:
+        self._heartbeat_task.cancel()
+      if sys.platform != "darwin":
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+      else:
+        self._heartbeat_task = None
 
       return True
 
@@ -297,25 +308,36 @@ class HeadlessDeviceNode:
     self.is_reconnecting = False
 
   async def _heartbeat_loop(self):
-    """心跳检测：每3秒读取一次设备名称"""
+    """心跳检测：每 5 秒读一次；单次失败会重试一次；仅当连续 2 次都失败才断开，避免周期性断连导致灯暗时数据堆积、亮时一次性跳变"""
+    consecutive_fail = 0
     try:
       while True:
-        await asyncio.sleep(3)
-        if self.client:  # 只要 client 还在就尝试检查
+        await asyncio.sleep(5)
+        if not self.client:
+          break
+        err = None
+        try:
+          await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
+        except Exception as e:
+          err = e
+        if err and self.client:
+          await asyncio.sleep(1.0)
           try:
-            # 【修复 3】用读取标准特征值代替 get_rssi
-            await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
-          except Exception as e:
-            print(f"Heartbeat failed ({e}), active disconnect...")
-            # 心跳失败，说明链路已死，主动断开触发重连逻辑
+            if self.client:
+              await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
+            err = None
+          except Exception:
+            pass
+        if err and self.client:
+          consecutive_fail += 1
+          if consecutive_fail >= 2:
+            print(f"Heartbeat failed {consecutive_fail} times ({err}), active disconnect...")
             await self._ensure_disconnect()
-            # _ensure_disconnect 可能会触发 _on_disconnect 回调
-            # 如果没触发，我们需要手动确保进入重连流程
             if not self.intentional_disconnect:
               self._trigger_reconnect()
             break
         else:
-          break
+          consecutive_fail = 0
     except asyncio.CancelledError:
       pass
 
@@ -332,6 +354,8 @@ class HeadlessDeviceNode:
 
   def _on_notify(self, sender, data):
     try:
+      if DEBUG_SCORE_LATENCY:
+        print(f"[BLE] recv t={time.perf_counter():.3f} plus={data[2] if len(data) > 2 else 0} minus={data[3] if len(data) > 3 else 0}")
       evt = parse_notification_data(data)
       if self.on_data_callback:
         self.on_data_callback(evt.current_total, evt.event_type, evt.total_plus, evt.total_minus, evt.timestamp_ms)
@@ -379,21 +403,32 @@ class HeadlessReferee:
     self.status[role] = status
     self._broadcast_update("status_update")
 
+  def _schedule_record_log(self, role, typ, ts):
+    """在线程中写日志，不阻塞 BLE 回调和事件循环"""
+    if _main_loop is None:
+      self._record_log(role, typ, ts)
+      return
+    def _run():
+      asyncio.create_task(asyncio.to_thread(self._record_log, role, typ, ts))
+    _main_loop.call_soon_threadsafe(_run)
+
   def _on_pri_data(self, cur, typ, p, m, ts):
+    t0 = time.perf_counter() if DEBUG_SCORE_LATENCY else None
     self.pri_cache = [p, m]
-    # 1. 先计算最新的比赛得分
     self._update_score_state()
-    # 2. 再将计算好的得分写入日志 (Event Type 和 Timestamp 用当前的)
-    self._record_log("PRIMARY", typ, ts)
-    # 3. 广播给前端
+    self._schedule_record_log("PRIMARY", typ, ts)
     self._broadcast_update("score_update")
+    if DEBUG_SCORE_LATENCY:
+      print(f"[Score] pri_data done in {(time.perf_counter() - t0) * 1000:.1f} ms")
 
   def _on_sec_data(self, cur, typ, p, m, ts):
+    t0 = time.perf_counter() if DEBUG_SCORE_LATENCY else None
     self.sec_cache = [p, m]
-    # 同上：副设备数据进来，先融合计算，再保存融合后的状态
     self._update_score_state()
-    self._record_log("SECONDARY", typ, ts)
+    self._schedule_record_log("SECONDARY", typ, ts)
     self._broadcast_update("score_update")
+    if DEBUG_SCORE_LATENCY:
+      print(f"[Score] sec_data done in {(time.perf_counter() - t0) * 1000:.1f} ms")
 
   def _update_score_state(self):
     """仅计算分数，不广播，不存储"""
@@ -472,7 +507,10 @@ class HeadlessReferee:
 # ==========================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-  await scanner_manager.start()
+  global _main_loop
+  _main_loop = asyncio.get_running_loop()
+  # 不再在启动时 await scanner_manager.start()，避免 BLE 初始化拖慢整进程（约 20s+）
+  # 扫描器在首次 GET /scan 时懒启动（见 scan_devices）
   yield
   await scanner_manager.stop()
 
@@ -486,6 +524,8 @@ referees = {}
 export_manager = ExportManager(storage_manager)
 
 async def broadcast_json(data):
+  if DEBUG_SCORE_LATENCY and data.get("type") in ("score_update", "status_update"):
+    print(f"[WS] broadcast {data.get('type')} t={time.perf_counter():.3f} n_ws={len(active_ws)}")
   for ws in active_ws:
     try:
       await ws.send_json(data)

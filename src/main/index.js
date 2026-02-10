@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
-import { join, dirname } from 'path'
+import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater' // --- 新增：引入自动更新模块 ---
 import icon from '../../resources/icon.png?asset'
@@ -7,20 +7,56 @@ import yaml from 'js-yaml'
 import fs from 'fs'
 // 【修改 1】引入 execSync 用于同步执行命令
 const { spawn, execSync } = require('child_process')
+const net = require('net')
 
 let pyProc = null
 let mainWindow = null
 let overlayWindow = null
 
-// --- 新增：读取配置端口函数 ---
+// --- 启动日志（打包后从 DMG 启动时无终端，可查看此文件分析各阶段耗时）---
+let startupLogStream = null
+let startupLogPath = null
+let startupT0 = 0
+function initStartupLog() {
+  try {
+    const dir = app.getPath('userData')
+    const logDir = join(dir, 'logs')
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
+    startupLogPath = join(logDir, 'startup.log')
+    startupLogStream = fs.createWriteStream(startupLogPath, { flags: 'a' })
+    startupT0 = Date.now()
+    const line = (msg) => startupLogStream.write(msg + '\n')
+    line('')
+    line('========== ' + new Date().toISOString() + ' ==========')
+    line('Log file: ' + startupLogPath)
+    line('View: tail -f "' + startupLogPath + '"  or open in Finder')
+    line('T+0ms    app.whenReady()')
+    return startupLogPath
+  } catch (e) {
+    console.error('[Electron] Failed to init startup log:', e)
+    return null
+  }
+}
+function logToFile(msg) {
+  if (!startupLogStream) return
+  const ms = Date.now() - startupT0
+  try {
+    startupLogStream.write(`T+${ms}ms    ${msg}\n`)
+  } catch (e) {
+    console.error('[Electron] logToFile error:', e)
+  }
+}
+
+// --- 读取配置端口函数 ---
 // 用于前端获取正确的后端端口 (优先读取 config.yaml)
 function getAppConfig() {
   let port = 8000 // 默认端口，作为兜底
   try {
     let configPath = ''
     if (app.isPackaged) {
-      // 打包后：config.yaml 在 exe 同级目录
-      configPath = join(dirname(app.getPath('exe')), 'config.yaml')
+      // 打包后：config.yaml 被放在 app 的 Resources 目录中
+      // 使用 process.resourcesPath，确保与 backend-engine / server.py 读取的路径一致
+      configPath = join(process.resourcesPath, 'config.yaml')
       console.log('Config Path (Prod):', configPath)
     } else {
       // 开发时：使用 process.cwd() 获取项目根目录
@@ -55,11 +91,33 @@ const createPyProc = () => {
 
   if (is.dev) {
     script = join(__dirname, '../../server.py')
-    cmd = 'python'
+    // macOS: 优先使用 .venv-mac 虚拟环境中的 Python
+    if (process.platform === 'darwin') {
+      const venvPython = join(process.cwd(), '.venv-mac', 'bin', 'python')
+      const venvPython3 = join(process.cwd(), '.venv-mac', 'bin', 'python3')
+      if (fs.existsSync(venvPython)) {
+        cmd = venvPython
+        console.log('[Electron] Using .venv-mac Python:', cmd)
+      } else if (fs.existsSync(venvPython3)) {
+        cmd = venvPython3
+        console.log('[Electron] Using .venv-mac Python:', cmd)
+      } else {
+        cmd = 'python3'
+        console.log('[Electron] .venv-mac not found, using system python3')
+      }
+    } else {
+      cmd = 'python3'
+    }
     args = [script]
     console.log('Starting Python backend (Dev):', script)
   } else {
-    script = join(process.resourcesPath, 'backend-engine.exe')
+    // macOS: onedir 打包，可执行文件在 backend-engine/backend-engine（避免 onefile 解包导致 30s+ 启动延迟）
+    // Windows: onefile 单文件 backend-engine.exe
+    if (process.platform === 'darwin') {
+      script = join(process.resourcesPath, 'backend-engine', 'backend-engine')
+    } else {
+      script = join(process.resourcesPath, 'backend-engine.exe')
+    }
     cmd = script
     args = []
     console.log('Starting Python backend (Prod):', script)
@@ -69,13 +127,41 @@ const createPyProc = () => {
 
   if (pyProc != null) {
     console.log('[Electron] Python process started, PID:', pyProc.pid)
+    logToFile('Backend process spawned, PID: ' + pyProc.pid)
+    const writeBackendLog = (prefix, data) => {
+      const s = (data && data.toString) ? data.toString().trim() : String(data)
+      if (s) logToFile(prefix + ' ' + s.replace(/\n/g, ' | '))
+    }
     pyProc.stdout.on('data', function (data) {
       console.log('py_stdout: ' + data)
+      writeBackendLog('[backend]', data)
     })
     pyProc.stderr.on('data', function (data) {
       console.log('py_stderr: ' + data)
+      writeBackendLog('[backend stderr]', data)
     })
   }
+}
+
+// 等待后端在 port 上开始监听再 resolve（打包后后端启动慢，避免前端先连导致 ERR_CONNECTION_REFUSED）
+function waitForBackend(port, maxMs = 15000) {
+  return new Promise((resolve) => {
+    const start = Date.now()
+    const tryConnect = () => {
+      const sock = net.connect(port, '127.0.0.1', () => {
+        sock.destroy()
+        resolve(true)
+      })
+      sock.once('error', () => {
+        if (Date.now() - start >= maxMs) {
+          resolve(false)
+          return
+        }
+        setTimeout(tryConnect, 300)
+      })
+    }
+    tryConnect()
+  })
 }
 
 // --- 2. 关闭 Python 后端 (关键修改) ---
@@ -138,12 +224,13 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  // 监听主窗口关闭事件，同步关闭悬浮窗
+  // 点击叉号视为完全退出：先关悬浮窗，再退出应用（等同 Cmd+Q，会触发 will-quit 并关闭后端）
   mainWindow.on('close', () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.close()
       overlayWindow = null
     }
+    app.quit()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -154,7 +241,11 @@ function createWindow() {
 }
 
 // --- 4. 应用生命周期与 IPC 事件 ---
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (app.isPackaged) {
+    initStartupLog()
+    logToFile('whenReady done, starting backend...')
+  }
   electronApp.setAppUserModelId('com.freakthrow.FT Engine')
 
   app.on('browser-window-created', (_, window) => {
@@ -162,7 +253,25 @@ app.whenReady().then(() => {
   })
 
   createPyProc()
+  // 打包后：后端进程启动需要时间，等其监听端口后再打开窗口，避免前端先连报 ERR_CONNECTION_REFUSED
+  if (!is.dev) {
+    const port = appConfig.port
+    logToFile('Waiting for backend on port ' + port + '...')
+    const t1 = Date.now()
+    const ready = await waitForBackend(port)
+    const waitMs = Date.now() - t1
+    if (!ready) {
+      console.warn('[Electron] Backend did not become ready in time, opening window anyway.')
+      logToFile('Backend NOT ready after ' + waitMs + 'ms, opening window anyway')
+    } else {
+      console.log('[Electron] Backend ready on port', port)
+      logToFile('Backend ready on port ' + port + ' (waited ' + waitMs + 'ms)')
+    }
+  }
+  logToFile('Creating main window...')
   createWindow()
+  logToFile('Main window created, startup complete.')
+  if (startupLogPath) logToFile('Log path: ' + startupLogPath)
 
   // === 自动更新事件监听 (PC软件) ===
 
@@ -259,13 +368,13 @@ app.whenReady().then(() => {
       // 【修改】增加边界检查：如果目标窗口被最小化（坐标极小），强制重置到主屏幕
       // 避免悬浮窗被创建在屏幕外导致不可见
       if (bounds.x < -10000 || bounds.y < -10000) {
-          console.log('[Electron] Detected minimized/off-screen target, resetting overlay to primary display.')
-          // 保持默认的 winX/winY/winW/winH (主屏幕全屏)
+        console.log('[Electron] Detected minimized/off-screen target, resetting overlay to primary display.')
+        // 保持默认的 winX/winY/winW/winH (主屏幕全屏)
       } else {
-          winX = Math.round(bounds.x)
-          winY = Math.round(bounds.y)
-          winW = Math.round(bounds.width)
-          winH = Math.round(bounds.height)
+        winX = Math.round(bounds.x)
+        winY = Math.round(bounds.y)
+        winW = Math.round(bounds.width)
+        winH = Math.round(bounds.height)
       }
     }
 
@@ -290,7 +399,7 @@ app.whenReady().then(() => {
 
     // 【新增】将初始化数据暂存到窗口对象上，供 overlay-ready 事件提取
     if (initialState) {
-        overlayWindow.initialOverlayData = initialState
+      overlayWindow.initialOverlayData = initialState
     }
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -359,9 +468,11 @@ app.on('will-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  // 显式清理，防止窗口关闭但 app 进程残留导致后端未退出
-  exitPyProc()
+  // Windows / Linux：关掉所有窗口就退出应用并关闭后端
   if (process.platform !== 'darwin') {
+    exitPyProc()
     app.quit()
   }
+  // macOS：遵循平台习惯，关闭所有窗口时继续保留应用和后端进程，
+  // 下次点击 Dock 图标只需重新创建窗口即可，避免“UI 关掉后后端也被杀、再开连不上”的问题
 })
