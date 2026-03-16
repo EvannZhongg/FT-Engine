@@ -1,38 +1,67 @@
 import { app, shell, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
-import { join, dirname } from 'path'
+import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { autoUpdater } from 'electron-updater' // --- 新增：引入自动更新模块 ---
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import yaml from 'js-yaml'
 import fs from 'fs'
-// 【修改 1】引入 execSync 用于同步执行命令
+import { getBackendEnv, getBackendLaunchConfig, getConfigPath, getDataRoot, isWindows } from './platform'
+
 const { spawn, execSync } = require('child_process')
+const net = require('net')
 
 let pyProc = null
 let mainWindow = null
 let overlayWindow = null
 
-// --- 新增：读取配置端口函数 ---
-// 用于前端获取正确的后端端口 (优先读取 config.yaml)
-function getAppConfig() {
-  let port = 8000 // 默认端口，作为兜底
+let startupLogStream = null
+let startupT0 = 0
+
+function closeStartupLog() {
+  if (!startupLogStream) return
   try {
-    let configPath = ''
-    if (app.isPackaged) {
-      // 打包后：优先 resources，其次 exe 同级目录
-      const resourceConfig = join(process.resourcesPath, 'config.yaml')
-      const exeConfig = join(dirname(app.getPath('exe')), 'config.yaml')
-      if (fs.existsSync(resourceConfig)) {
-        configPath = resourceConfig
-      } else {
-        configPath = exeConfig
-      }
-      console.log('Config Path (Prod):', configPath)
-    } else {
-      // 开发时：使用 process.cwd() 获取项目根目录
-      configPath = join(process.cwd(), 'config.yaml')
-      console.log('Config Path (Dev):', configPath)
+    startupLogStream.end()
+  } catch (error) {
+    console.error('[Electron] Failed to close startup log:', error)
+  } finally {
+    startupLogStream = null
+  }
+}
+
+function initStartupLog() {
+  try {
+    const logDir = join(app.getPath('userData'), 'logs')
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true })
     }
+
+    const logPath = join(logDir, 'startup.log')
+    startupLogStream = fs.createWriteStream(logPath, { flags: 'a' })
+    startupT0 = Date.now()
+    startupLogStream.write(`\n========== ${new Date().toISOString()} ==========\n`)
+    startupLogStream.write(`Log file: ${logPath}\n`)
+  } catch (error) {
+    console.error('[Electron] Failed to init startup log:', error)
+  }
+}
+
+function logToFile(message) {
+  if (!startupLogStream) return
+
+  try {
+    const elapsed = Date.now() - startupT0
+    startupLogStream.write(`T+${elapsed}ms    ${message}\n`)
+  } catch (error) {
+    console.error('[Electron] Failed to write startup log:', error)
+  }
+}
+
+function getAppConfig() {
+  let port = 8000
+
+  try {
+    const configPath = getConfigPath(app)
+    console.log('[Electron] Config Path:', configPath)
 
     if (fs.existsSync(configPath)) {
       const fileContents = fs.readFileSync(configPath, 'utf8')
@@ -42,66 +71,79 @@ function getAppConfig() {
         console.log(`[Electron] Loaded port from config: ${port}`)
       }
     } else {
-      console.log(`[Electron] Config file not found, using default port 8000`)
+      console.log('[Electron] Config file not found, using default port 8000')
     }
-  } catch (e) {
-    console.error('[Electron] Failed to load config:', e)
+  } catch (error) {
+    console.error('[Electron] Failed to load config:', error)
   }
+
   return { port }
 }
 
-// 缓存配置以便多次使用
 const appConfig = getAppConfig()
 
-// --- 1. 启动 Python 后端 ---
 const createPyProc = () => {
-  let script = null
-  let cmd = null
-  let args = []
-
-  if (is.dev) {
-    script = join(__dirname, '../../server.py')
-    cmd = 'python'
-    args = [script]
-    console.log('Starting Python backend (Dev):', script)
-  } else {
-    script = join(process.resourcesPath, 'backend-engine.exe')
-    cmd = script
-    args = []
-    console.log('Starting Python backend (Prod):', script)
-  }
-
-  pyProc = spawn(cmd, args)
+  const { cmd, args } = getBackendLaunchConfig(__dirname, is.dev)
+  console.log(`[Electron] Starting Python backend (${is.dev ? 'Dev' : 'Prod'}):`, cmd, args)
+  pyProc = spawn(cmd, args, { env: getBackendEnv(app) })
 
   if (pyProc != null) {
     console.log('[Electron] Python process started, PID:', pyProc.pid)
+    logToFile('Backend process spawned, PID: ' + pyProc.pid)
     pyProc.stdout.on('data', function (data) {
-      console.log('py_stdout: ' + data)
+      const line = data.toString()
+      console.log('py_stdout: ' + line)
+      const trimmed = line.trim()
+      if (trimmed) {
+        logToFile('[backend] ' + trimmed.replace(/\n/g, ' | '))
+      }
     })
     pyProc.stderr.on('data', function (data) {
-      console.log('py_stderr: ' + data)
+      const line = data.toString()
+      console.log('py_stderr: ' + line)
+      const trimmed = line.trim()
+      if (trimmed) {
+        logToFile('[backend stderr] ' + trimmed.replace(/\n/g, ' | '))
+      }
     })
   }
 }
 
-// --- 2. 关闭 Python 后端 (关键修改) ---
+function waitForBackend(port, maxMs = 15000) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+
+    const tryConnect = () => {
+      const socket = net.connect(port, '127.0.0.1', () => {
+        socket.destroy()
+        resolve(true)
+      })
+
+      socket.once('error', () => {
+        if (Date.now() - startedAt >= maxMs) {
+          resolve(false)
+          return
+        }
+        setTimeout(tryConnect, 300)
+      })
+    }
+
+    tryConnect()
+  })
+}
+
 const exitPyProc = () => {
   if (pyProc != null) {
     console.log('[Electron] Killing Python process...')
 
-    // 针对 Windows 系统使用 taskkill 强制结束进程树
-    if (process.platform === 'win32') {
+    if (isWindows) {
       try {
-        // 【修改 2】使用 execSync 同步执行，阻塞主进程直到杀进程命令完成
-        // /pid: 指定进程ID, /f: 强制结束, /t: 结束该进程及其启动的所有子进程
         execSync(`taskkill /pid ${pyProc.pid} /f /t`)
         console.log('[Electron] Taskkill executed successfully')
-      } catch (e) {
-        // 忽略进程可能已经不存在的错误
-        console.error('[Electron] Failed to taskkill (process might be already dead):', e.message)
+      } catch (error) {
+        console.error('[Electron] Failed to taskkill (process might be already dead):', error.message)
       }
     } else {
-      // macOS / Linux 使用标准的 kill 信号
       pyProc.kill()
     }
 
@@ -109,7 +151,35 @@ const exitPyProc = () => {
   }
 }
 
-// --- 3. 创建主窗口 (控制台) ---
+function getLocalDataTargets() {
+  const dataRoot = getDataRoot(app)
+  return [
+    join(dataRoot, 'app_settings.json'),
+    join(dataRoot, 'match_data'),
+    join(dataRoot, 'logs')
+  ]
+}
+
+function deleteLocalDataFiles() {
+  closeStartupLog()
+  exitPyProc()
+
+  const deleted = []
+  const failed = []
+  for (const target of getLocalDataTargets()) {
+    try {
+      if (fs.existsSync(target)) {
+        fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 })
+      }
+      deleted.push(target)
+    } catch (error) {
+      failed.push({ target, message: error.message })
+    }
+  }
+
+  return { deleted, failed, dataRoot: getDataRoot(app) }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
@@ -117,11 +187,9 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     frame: false,
-    // 【关键修改 1】关闭主窗口透明，解决最大化崩溃和无法还原的问题
     transparent: false,
-    // 【关键修改 2】设置背景色，防止关闭透明后窗口变白
     backgroundColor: '#1e1e1e',
-    hasShadow: true, // 关闭透明后，可以开启系统阴影让窗口更自然（可选）
+    hasShadow: true,
     resizable: true,
     icon: icon,
     webPreferences: {
@@ -133,7 +201,6 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
-    // --- 新增：窗口加载完成后自动检查更新 ---
     if (!is.dev) {
       autoUpdater.checkForUpdatesAndNotify()
     }
@@ -144,11 +211,13 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  // 监听主窗口关闭事件，同步关闭悬浮窗
   mainWindow.on('close', () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.close()
       overlayWindow = null
+    }
+    if (process.platform === 'darwin') {
+      app.quit()
     }
   })
 
@@ -159,8 +228,12 @@ function createWindow() {
   }
 }
 
-// --- 4. 应用生命周期与 IPC 事件 ---
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (app.isPackaged) {
+    initStartupLog()
+    logToFile('whenReady done, starting backend...')
+  }
+
   electronApp.setAppUserModelId('com.freakthrow.FT Engine')
 
   app.on('browser-window-created', (_, window) => {
@@ -168,47 +241,48 @@ app.whenReady().then(() => {
   })
 
   createPyProc()
+
+  if (!is.dev) {
+    logToFile(`Waiting for backend on port ${appConfig.port}...`)
+    const ready = await waitForBackend(appConfig.port)
+    if (ready) {
+      logToFile(`Backend ready on port ${appConfig.port}`)
+    } else {
+      console.warn('[Electron] Backend did not become ready in time, opening window anyway.')
+      logToFile(`Backend not ready on port ${appConfig.port}, opening window anyway`)
+    }
+  }
+
+  logToFile('Creating main window...')
   createWindow()
+  logToFile('Main window created')
 
-  // === 自动更新事件监听 (PC软件) ===
-
-  // 发现新版本
   autoUpdater.on('update-available', () => {
     if (mainWindow) mainWindow.webContents.send('update_available')
   })
 
-  // 更新已下载，准备安装
   autoUpdater.on('update-downloaded', () => {
     if (mainWindow) mainWindow.webContents.send('update_downloaded')
   })
 
-  // 前端触发：重启并安装更新
   ipcMain.on('restart_app', () => {
     autoUpdater.quitAndInstall()
   })
 
-  // === IPC 事件监听 ===
-
-  // === 新增：全局快捷键管理 ===
-
-  // 注册快捷键
   ipcMain.on('register-global-shortcut', (event, shortcut) => {
-    // 先清空旧的，防止重复
     globalShortcut.unregisterAll()
 
     if (!shortcut) return
 
     try {
-      // 注册新快捷键
-      const ret = globalShortcut.register(shortcut, () => {
+      const registered = globalShortcut.register(shortcut, () => {
         console.log('[Electron] Global shortcut triggered:', shortcut)
-        // 收到快捷键后，通知主窗口执行操作
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('global-shortcut-action')
         }
       })
 
-      if (!ret) {
+      if (!registered) {
         console.log('[Electron] Global shortcut registration failed')
       }
     } catch (error) {
@@ -216,25 +290,35 @@ app.whenReady().then(() => {
     }
   })
 
-  // 注销快捷键 (通常在离开计分板页面时调用)
   ipcMain.on('unregister-global-shortcut', () => {
     globalShortcut.unregisterAll()
     console.log('[Electron] Global shortcuts unregistered')
   })
 
-  // 0. 新增：前端获取服务端配置（端口）
   ipcMain.handle('get-server-config', () => {
     return appConfig
   })
 
-  // 0.1 主窗口内容保护（避免 OBS 捕获）
+  ipcMain.handle('delete-local-data', async () => {
+    const result = deleteLocalDataFiles()
+    if (result.failed.length > 0) {
+      return { ok: false, ...result }
+    }
+
+    setTimeout(() => {
+      app.relaunch()
+      app.exit(0)
+    }, 150)
+
+    return { ok: true, ...result }
+  })
+
   ipcMain.on('set-main-content-protection', (event, enabled) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setContentProtection(!!enabled)
     }
   })
 
-  // 1. 最大化/还原窗口控制
   ipcMain.on('window-max', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
@@ -246,16 +330,13 @@ app.whenReady().then(() => {
     }
   })
 
-  // 【新增】监听 Overlay 准备就绪，发送数据（解决窗口模式下数据不显示的竞态问题）
   ipcMain.on('overlay-ready', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    // 如果窗口实例上挂载了初始化数据，则发送给渲染进程
     if (win && win.initialOverlayData) {
       win.webContents.send('init-overlay-data', win.initialOverlayData)
     }
   })
 
-  // 2. 打开悬浮窗
   ipcMain.on('open-overlay', (event, { bounds, initialState } = {}) => {
     if (overlayWindow) {
       overlayWindow.focus()
@@ -269,16 +350,13 @@ app.whenReady().then(() => {
     let winH = primaryDisplay.workAreaSize.height
 
     if (bounds) {
-      // 【修改】增加边界检查：如果目标窗口被最小化（坐标极小），强制重置到主屏幕
-      // 避免悬浮窗被创建在屏幕外导致不可见
       if (bounds.x < -10000 || bounds.y < -10000) {
-          console.log('[Electron] Detected minimized/off-screen target, resetting overlay to primary display.')
-          // 保持默认的 winX/winY/winW/winH (主屏幕全屏)
+        console.log('[Electron] Detected minimized/off-screen target, resetting overlay to primary display.')
       } else {
-          winX = Math.round(bounds.x)
-          winY = Math.round(bounds.y)
-          winW = Math.round(bounds.width)
-          winH = Math.round(bounds.height)
+        winX = Math.round(bounds.x)
+        winY = Math.round(bounds.y)
+        winW = Math.round(bounds.width)
+        winH = Math.round(bounds.height)
       }
     }
 
@@ -300,12 +378,10 @@ app.whenReady().then(() => {
         webSecurity: false
       }
     })
-    // 确保悬浮窗不启用内容保护（避免影响 OBS 捕获）
     overlayWindow.setContentProtection(false)
 
-    // 【新增】将初始化数据暂存到窗口对象上，供 overlay-ready 事件提取
     if (initialState) {
-        overlayWindow.initialOverlayData = initialState
+      overlayWindow.initialOverlayData = initialState
     }
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -316,7 +392,6 @@ app.whenReady().then(() => {
 
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
 
-    // 保留原有逻辑作为兜底（主要用于全屏模式下可能较快触发的情况）
     overlayWindow.webContents.on('did-finish-load', () => {
       if (initialState) {
         overlayWindow.webContents.send('init-overlay-data', initialState)
@@ -331,14 +406,12 @@ app.whenReady().then(() => {
     })
   })
 
-  // 3. 关闭悬浮窗
   ipcMain.on('close-overlay', () => {
     if (overlayWindow) {
       overlayWindow.close()
     }
   })
 
-  // 4. 鼠标穿透控制
   ipcMain.on('set-ignore-mouse', (event, ignore) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
@@ -351,7 +424,6 @@ app.whenReady().then(() => {
     }
   })
 
-  // 5. 窗口控制
   ipcMain.on('window-min', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.minimize()
@@ -367,16 +439,14 @@ app.whenReady().then(() => {
   })
 })
 
-// 确保在任何退出场景下都清理后端
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   exitPyProc()
 })
 
 app.on('window-all-closed', () => {
-  // 显式清理，防止窗口关闭但 app 进程残留导致后端未退出
-  exitPyProc()
   if (process.platform !== 'darwin') {
+    exitPyProc()
     app.quit()
   }
 })

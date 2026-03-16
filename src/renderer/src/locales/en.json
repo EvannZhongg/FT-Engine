@@ -15,6 +15,11 @@
   "nav_toggle_on": "On",
   "nav_obs_protect": "OBS protection",
   "nav_obs_protect_hint": "Hide the main window from OBS capture; overlay remains visible.",
+  "nav_delete_local_data": "Local Data",
+  "nav_delete_local_data_action": "Delete All Local Data",
+  "nav_delete_local_data_busy": "Deleting and restarting...",
+  "nav_delete_local_data_confirm": "Are you sure you want to delete all local data?\n\nThis removes saved match records, app settings, and logs on this device, then restarts the app. This cannot be undone.",
+  "nav_delete_local_data_fail": "Failed to delete local data. Please close the app and try again.",
 
   "home_hero_title": "Welcome Back",
   "home_hero_subtitle": "Ready for the next match?",

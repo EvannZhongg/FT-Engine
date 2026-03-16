@@ -40,6 +40,7 @@
           <select :value="$i18n.locale" @change="changeLanguage">
             <option value="zh">简体中文</option>
             <option value="en">English</option>
+            <option value="ja">日本語</option>
           </select>
         </div>
 
@@ -96,6 +97,13 @@
             </div>
           </div>
         </div>
+
+        <div class="setting-item danger-item">
+          <label>{{ $t('nav_delete_local_data') }}</label>
+          <button class="danger-btn" :disabled="isDeletingData" @click="handleDeleteLocalData">
+            {{ isDeletingData ? $t('nav_delete_local_data_busy') : $t('nav_delete_local_data_action') }}
+          </button>
+        </div>
       </div>
     </transition>
   </div>
@@ -119,6 +127,7 @@ const settingsBtnRef = ref(null)
 const isRecording = ref(false)
 const obsHintHover = ref(false)
 const obsHintPinned = ref(false)
+const isDeletingData = ref(false)
 
 // 计算属性：显示当前快捷键或正在录制的状态
 const displayShortcut = computed(() => {
@@ -234,6 +243,32 @@ const toggleObsHint = () => {
   obsHintPinned.value = !obsHintPinned.value
 }
 
+const handleDeleteLocalData = async () => {
+  if (isDeletingData.value) return
+
+  const confirmed = window.confirm(t('nav_delete_local_data_confirm'))
+  if (!confirmed) return
+
+  if (!window.electron || !window.electron.ipcRenderer) {
+    window.alert(t('nav_delete_local_data_fail'))
+    return
+  }
+
+  isDeletingData.value = true
+  try {
+    const result = await window.electron.ipcRenderer.invoke('delete-local-data')
+    if (!result?.ok) {
+      console.error('Delete local data failed:', result?.failed)
+      window.alert(t('nav_delete_local_data_fail'))
+    }
+  } catch (error) {
+    console.error('Delete local data failed:', error)
+    window.alert(t('nav_delete_local_data_fail'))
+  } finally {
+    isDeletingData.value = false
+  }
+}
+
 watch(
   () => store.appSettings.obs_protect_main,
   (enabled) => {
@@ -252,9 +287,9 @@ watch(
 .settings-btn { background: transparent; border: none; color: #ccc; cursor: pointer; padding: 8px; border-radius: 4px; margin-right: 15px; display: flex; align-items: center; transition: all 0.2s; &:hover, &.active { background-color: rgba(255, 255, 255, 0.1); color: white; } }
 .window-controls { display: flex; height: 100%; }
 .win-btn { background: transparent; border: none; color: #ccc; width: 46px; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s, color 0.2s; outline: none; &:hover { background-color: rgba(255, 255, 255, 0.1); color: white; } &.close-btn:hover { background-color: #e81123; color: white; } }
-.settings-panel { position: absolute; top: 50px; left: 0; right: 0; background-color: #252526; padding: 20px; border-bottom: 1px solid #333; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3); .setting-item { display: flex; align-items: center; margin-bottom: 15px; color: #ccc; label { width: 150px; font-size: 14px; } select, input { background: #3c3c3c; border: 1px solid #555; color: white; padding: 6px 10px; border-radius: 4px; flex: 1; max-width: 200px; outline: none; &:focus { border-color: #3498db; } } .shortcut-input { cursor: pointer; text-align: center; font-family: monospace; font-weight: bold; &.recording { border-color: #e67e22; color: #e67e22; background: rgba(230, 126, 34, 0.1); } } } }
+.settings-panel { position: absolute; top: 50px; left: 0; right: 0; background-color: #252526; padding: 20px; border-bottom: 1px solid #333; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3); .setting-item { display: flex; align-items: center; margin-bottom: 15px; color: #ccc; label { width: 180px; font-size: 14px; white-space: nowrap; } select, input { background: #3c3c3c; border: 1px solid #555; color: white; padding: 6px 10px; border-radius: 4px; flex: 1; max-width: 200px; outline: none; &:focus { border-color: #3498db; } } .shortcut-input { cursor: pointer; text-align: center; font-family: monospace; font-weight: bold; &.recording { border-color: #e67e22; color: #e67e22; background: rgba(230, 126, 34, 0.1); } } } }
 .setting-checkbox { align-items: center; }
-.obs-protect-label { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 0 150px; }
+.obs-protect-label { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 0 180px; }
 .obs-label-text { width: auto !important; }
 .obs-protect-toggle { flex: 1; max-width: 200px; display: inline-flex; align-items: center; }
 .seg-toggle { display: inline-flex; align-items: center; border: 1px solid #555; border-radius: 6px; overflow: hidden; background: #2f2f2f; }
@@ -265,6 +300,10 @@ watch(
 .info-btn { background: transparent; border: 1px solid #555; color: #bbb; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; }
 .info-btn:hover { color: #fff; border-color: #888; }
 .info-pop { position: absolute; top: 22px; left: 0; background: #111; border: 1px solid #444; color: #ddd; padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4; width: 240px; z-index: 10; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); pointer-events: none; }
+.danger-item { align-items: center; margin-top: 8px; }
+.danger-btn { background: #8f2d2d; color: #fff; border: 1px solid #b33c3c; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: 600; min-width: 240px; width: auto; text-align: center; white-space: nowrap; }
+.danger-btn:hover:not(:disabled) { background: #b33c3c; }
+.danger-btn:disabled { opacity: 0.65; cursor: wait; }
 .slide-enter-active, .slide-leave-active { transition: all 0.2s ease-out; }
 .slide-enter-from, .slide-leave-to { transform: translateY(-10px); opacity: 0; }
 </style>

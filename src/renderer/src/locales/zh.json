@@ -15,6 +15,11 @@
   "nav_toggle_on": "启用",
   "nav_obs_protect": "OBS 隔离",
   "nav_obs_protect_hint": "启用后主窗口不会被 OBS 捕获，悬浮窗不受影响。",
+  "nav_delete_local_data": "本地数据",
+  "nav_delete_local_data_action": "删除所有本地数据",
+  "nav_delete_local_data_busy": "正在删除并重启...",
+  "nav_delete_local_data_confirm": "确定要删除所有本地数据吗？\n\n这将删除本机保存的比赛记录、应用设置和日志，然后自动重启应用。此操作无法撤销。",
+  "nav_delete_local_data_fail": "删除本地数据失败，请关闭应用后重试。",
 
   "home_hero_title": "欢迎回来",
   "home_hero_subtitle": "准备好开始下一场比赛了吗？",

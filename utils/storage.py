@@ -1,23 +1,11 @@
 import os
 import csv
 import json
-import sys
 from datetime import datetime
 import shutil
+from utils.runtime import get_data_root
 
-# --- 1. 路径定义逻辑 (支持开发环境和打包后的 EXE 环境) ---
-if getattr(sys, 'frozen', False):
-  # 打包后：数据存在 EXE 同级目录
-  PROJECT_ROOT = os.path.dirname(sys.executable)
-else:
-  # 开发时：数据存在项目根目录
-  # 获取当前文件 (utils/storage.py) 的目录
-  current_utils_dir = os.path.dirname(os.path.abspath(__file__))
-  # 获取项目根目录 (utils 的上一级)
-  PROJECT_ROOT = os.path.dirname(current_utils_dir)
-
-# 基础数据存储路径
-BASE_DIR = os.path.join(PROJECT_ROOT, "match_data")
+BASE_DIR = os.path.join(get_data_root(), "match_data")
 
 
 class StorageManager:

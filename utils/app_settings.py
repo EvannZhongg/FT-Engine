@@ -1,8 +1,9 @@
 # utils/app_settings.py
 import json
 import os
+from utils.runtime import get_data_root
 
-SETTINGS_FILE = "app_settings.json"
+SETTINGS_FILE = os.path.join(get_data_root(), "app_settings.json")
 
 # 默认配置
 DEFAULT_SETTINGS = {
@@ -31,6 +32,7 @@ class AppSettings:
     def save(self):
         """保存当前配置到文件"""
         try:
+            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
         except Exception as e:

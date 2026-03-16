@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 import json
-import sys
 import os
 import yaml
 
@@ -15,41 +14,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from bleak import BleakScanner, BleakClient
 import pygetwindow as gw
 
-# 引入配置模块
 from utils.app_settings import app_settings
-from utils.storage import storage_manager
 from utils.exporter import ExportManager
-# ==========================================================
-# 配置与协议
-# ==========================================================
+from utils.platform import get_ble_heartbeat_config, should_enable_ble_heartbeat
+from utils.runtime import get_config_path
+from utils.storage import storage_manager
+
 SERVICE_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
 CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
-# 标准设备名称特征值 UUID (Generic Access -> Device Name)
-# 用于心跳检测，因为所有 BLE 设备都有这个，且读取它不会影响业务逻辑
 STANDARD_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 
 DEVICE_NAME_PREFIX = "Counter-"
+DEBUG_SCORE_LATENCY = os.environ.get("DEBUG_SCORE_LATENCY", "").strip() == "1"
 
-# ==========================================================
-# 全局比赛状态 (State Management)
-# ==========================================================
+_main_loop = None
+
 match_state = {
-    "current_group": "Free Mode", # 默认为自由模式，防止空指针
+    "current_group": "Free Mode",
     "current_contestant": "",
     "config": {}
 }
 
 
 def load_config():
-  port = 8000  # 默认端口
-
-  # 判断路径 (兼容开发环境和打包环境)
-  if getattr(sys, 'frozen', False):
-    base_path = os.path.dirname(sys.executable)
-  else:
-    base_path = os.path.dirname(os.path.abspath(__file__))
-
-  config_path = os.path.join(base_path, 'config.yaml')
+  port = 8000
+  config_path = get_config_path()
 
   if os.path.exists(config_path):
     try:
@@ -65,6 +54,7 @@ def load_config():
 
   return port
 
+
 @dataclass
 class ClickerEvent:
   current_total: int
@@ -75,14 +65,12 @@ class ClickerEvent:
 
 
 def parse_notification_data(data: bytes) -> ClickerEvent:
-  STRUCT_FORMAT = "<ibiiI"
-  if len(data) != 17: raise ValueError("Data mismatch")
-  return ClickerEvent(*struct.unpack(STRUCT_FORMAT, data))
+  struct_format = "<ibiiI"
+  if len(data) != 17:
+    raise ValueError("Data mismatch")
+  return ClickerEvent(*struct.unpack(struct_format, data))
 
 
-# ==========================================================
-# 扫描管理器
-# ==========================================================
 class ScannerManager:
   def __init__(self):
     self.scanner = None
@@ -97,7 +85,9 @@ class ScannerManager:
     }
 
   async def start(self):
-    if self.is_scanning: return
+    if self.is_scanning:
+      return
+
     print("[Scanner] Starting background scan...")
     self.get_active_devices()
 
@@ -112,45 +102,47 @@ class ScannerManager:
       self.is_scanning = False
 
   async def stop(self):
-    if not self.is_scanning: return
+    if not self.is_scanning:
+      return
+
     print("[Scanner] Stopping background scan...")
     try:
       await self.scanner.stop()
-    except:
+    except Exception:
       pass
+
     self.scanner = None
     self.is_scanning = False
 
   def get_active_devices(self):
     now = time.time()
     expired = [k for k, v in self.found_devices.items() if now - v['ts'] > self.device_ttl]
-    for k in expired: del self.found_devices[k]
+    for key in expired:
+      del self.found_devices[key]
 
-    # 【新增】获取备注配置
     remarks = app_settings.get("device_remarks") or {}
-
     results = []
+
     for entry in self.found_devices.values():
-      d, adv = entry['device'], entry['adv']
-      real_name = adv.local_name or d.name or "Unknown"
+      device = entry['device']
+      adv = entry['adv']
+      real_name = adv.local_name or device.name or "Unknown"
       is_target = False
 
       if real_name.startswith(DEVICE_NAME_PREFIX):
         is_target = True
       elif adv.service_uuids:
-        for u in adv.service_uuids:
-          if str(u).lower() == CHARACTERISTIC_UUID.lower():
-            is_target = True;
+        for uuid in adv.service_uuids:
+          if str(uuid).lower() == CHARACTERISTIC_UUID.lower():
+            is_target = True
             break
 
       if is_target:
-        # 【新增】如果有备注，附加到返回数据中
-        remark = remarks.get(d.address, "")
         results.append({
-            "name": real_name,
-            "address": d.address,
-            "rssi": adv.rssi,
-            "remark": remark  # 返回备注
+          "name": real_name,
+          "address": device.address,
+          "rssi": adv.rssi,
+          "remark": remarks.get(device.address, "")
         })
 
     results.sort(key=lambda x: x['rssi'], reverse=True)
@@ -163,9 +155,6 @@ class ScannerManager:
 scanner_manager = ScannerManager()
 
 
-# ==========================================================
-# 核心业务类 (修复心跳与重连)
-# ==========================================================
 class HeadlessDeviceNode:
   def __init__(self, ble_device, on_data_callback, on_status_callback):
     self.ble_device = ble_device
@@ -190,50 +179,40 @@ class HeadlessDeviceNode:
       await self.client.connect()
       print(f"Connected: {self.ble_device.name}")
 
-      # 【修复 1】等待服务发现，解决 Windows 缓存问题
       await asyncio.sleep(1.5)
 
-      # 【关键修复】如果在等待期间连接被断开(self.client变为None)，则中止后续操作，防止 AttributeError
       if not self.client:
-          print(f"Connection aborted for {self.ble_device.name} during setup.")
-          return False
+        print(f"Connection aborted for {self.ble_device.name} during setup.")
+        return False
 
-      # 【修复 2】检查特征值是否存在
-      # 如果不存在，尝试读取标准设备名来"激活"服务列表
       try:
         await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
       except Exception:
-        pass  # 忽略错误，只是为了刷新缓存
+        pass
 
-      # 再次检查，防止 read_gatt_char 期间断开
       if not self.client:
-          return False
+        return False
 
-      # 开启通知
       await self.client.start_notify(CHARACTERISTIC_UUID, self._on_notify)
-
       self._emit_status("connected")
 
-      # 开启心跳
-      if self._heartbeat_task: self._heartbeat_task.cancel()
-      self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+      if self._heartbeat_task:
+        self._heartbeat_task.cancel()
+      self._heartbeat_task = asyncio.create_task(self._heartbeat_loop()) if should_enable_ble_heartbeat() else None
 
       return True
-
     except Exception as e:
       print(f"Conn failed: {e}")
 
-      # 打印调试信息
       try:
         if self.client and self.client.services:
           print("--- Debug: Services Found ---")
-          for s in self.client.services:
-            print(f"   Service: {s.uuid}")
+          for service in self.client.services:
+            print(f"   Service: {service.uuid}")
           print("-----------------------------")
-      except:
+      except Exception:
         pass
 
-      # 【关键】失败必须断开，否则设备卡死不广播
       await self._ensure_disconnect()
 
       if not self.intentional_disconnect:
@@ -243,7 +222,6 @@ class HeadlessDeviceNode:
       return False
 
   async def disconnect(self):
-    """用户主动断开"""
     self.intentional_disconnect = True
     if self._heartbeat_task:
       self._heartbeat_task.cancel()
@@ -253,22 +231,20 @@ class HeadlessDeviceNode:
     self._emit_status("disconnected")
 
   async def _ensure_disconnect(self):
-    """确保底层连接断开的辅助函数"""
     if self.client:
       try:
-        # 只有连接状态才需要断开
         if self.client.is_connected:
           print(f"Terminating connection to {self.ble_device.name}...")
           await self.client.disconnect()
       except Exception as e:
         print(f"Disconnect error (ignored): {e}")
       finally:
-        # 无论如何，清空 client 对象，防止残留
         self.client = None
 
   def _on_disconnect(self, client):
     print(f"Disconnected callback: {self.ble_device.name}")
-    if self._heartbeat_task: self._heartbeat_task.cancel()
+    if self._heartbeat_task:
+      self._heartbeat_task.cancel()
 
     if not self.intentional_disconnect:
       self._trigger_reconnect()
@@ -276,7 +252,9 @@ class HeadlessDeviceNode:
       self._emit_status("disconnected")
 
   def _trigger_reconnect(self):
-    if self.is_reconnecting: return
+    if self.is_reconnecting:
+      return
+
     self._emit_status("error")
     print(f"Connection lost! Auto-reconnect {self.ble_device.name}...")
     asyncio.create_task(self._reconnect_loop())
@@ -285,37 +263,55 @@ class HeadlessDeviceNode:
     self.is_reconnecting = True
     while not self.intentional_disconnect:
       print(f"Retrying {self.ble_device.name} in 3s...")
-      await asyncio.sleep(3.0)  # 稍微放慢重连频率
+      await asyncio.sleep(3.0)
 
-      # 如果用户在重连期间点了 Stop，立即停止
-      if self.intentional_disconnect: break
+      if self.intentional_disconnect:
+        break
 
       if await self._do_connect():
         print(f"Reconnected: {self.ble_device.name}")
         self.is_reconnecting = False
         return
+
     self.is_reconnecting = False
 
   async def _heartbeat_loop(self):
-    """心跳检测：每3秒读取一次设备名称"""
+    interval, retry_delay, fail_threshold = get_ble_heartbeat_config()
+    consecutive_failures = 0
+
     try:
       while True:
-        await asyncio.sleep(3)
-        if self.client:  # 只要 client 还在就尝试检查
-          try:
-            # 【修复 3】用读取标准特征值代替 get_rssi
-            await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
-          except Exception as e:
-            print(f"Heartbeat failed ({e}), active disconnect...")
-            # 心跳失败，说明链路已死，主动断开触发重连逻辑
-            await self._ensure_disconnect()
-            # _ensure_disconnect 可能会触发 _on_disconnect 回调
-            # 如果没触发，我们需要手动确保进入重连流程
-            if not self.intentional_disconnect:
-              self._trigger_reconnect()
-            break
-        else:
+        await asyncio.sleep(interval)
+        if not self.client:
           break
+
+        heartbeat_error = None
+        try:
+          await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
+        except Exception as e:
+          heartbeat_error = e
+
+        if heartbeat_error and retry_delay > 0 and self.client:
+          await asyncio.sleep(retry_delay)
+          try:
+            if self.client:
+              await self.client.read_gatt_char(STANDARD_DEVICE_NAME_UUID)
+            heartbeat_error = None
+          except Exception:
+            pass
+
+        if heartbeat_error and self.client:
+          consecutive_failures += 1
+          if consecutive_failures < fail_threshold:
+            continue
+
+          print(f"Heartbeat failed ({heartbeat_error}), active disconnect...")
+          await self._ensure_disconnect()
+          if not self.intentional_disconnect:
+            self._trigger_reconnect()
+          break
+
+        consecutive_failures = 0
     except asyncio.CancelledError:
       pass
 
@@ -324,18 +320,20 @@ class HeadlessDeviceNode:
       self.on_status_callback(status)
 
   async def send_reset(self):
-    if self.client:  # 不检查 is_connected，让 bleak 自己抛异常
+    if self.client:
       try:
         await self.client.write_gatt_char(CHARACTERISTIC_UUID, b'\x01', response=True)
-      except:
+      except Exception:
         pass
 
   def _on_notify(self, sender, data):
     try:
+      if DEBUG_SCORE_LATENCY:
+        print(f"[BLE] recv t={time.perf_counter():.3f} bytes={len(data)}")
       evt = parse_notification_data(data)
       if self.on_data_callback:
         self.on_data_callback(evt.current_total, evt.event_type, evt.total_plus, evt.total_minus, evt.timestamp_ms)
-    except:
+    except Exception:
       pass
 
 
@@ -347,7 +345,6 @@ class HeadlessReferee:
     self.broadcast = broadcast_func
     self.pri_dev = None
     self.sec_dev = None
-    # 初始分数
     self.score = {"total": 0, "plus": 0, "minus": 0, "penalty": 0}
     self.pri_cache = [0, 0]
     self.sec_cache = [0, 0]
@@ -365,13 +362,15 @@ class HeadlessReferee:
       sec.on_status_callback = lambda s: self._on_status_change("sec", s)
 
   async def reset(self):
-    t = []
-    if self.pri_dev: t.append(self.pri_dev.send_reset())
-    if self.sec_dev: t.append(self.sec_dev.send_reset())
-    if t: await asyncio.gather(*t, return_exceptions=True)
-    self.pri_cache = [0, 0];
+    tasks = []
+    if self.pri_dev:
+      tasks.append(self.pri_dev.send_reset())
+    if self.sec_dev:
+      tasks.append(self.sec_dev.send_reset())
+    if tasks:
+      await asyncio.gather(*tasks, return_exceptions=True)
+    self.pri_cache = [0, 0]
     self.sec_cache = [0, 0]
-    # Reset 时也要更新内部状态
     self._update_score_state()
     self._broadcast_update("score_update")
 
@@ -379,38 +378,45 @@ class HeadlessReferee:
     self.status[role] = status
     self._broadcast_update("status_update")
 
+  def _schedule_record_log(self, role, event_type, ble_timestamp):
+    if _main_loop is None:
+      self._record_log(role, event_type, ble_timestamp)
+      return
+
+    def runner():
+      asyncio.create_task(asyncio.to_thread(self._record_log, role, event_type, ble_timestamp))
+
+    _main_loop.call_soon_threadsafe(runner)
+
   def _on_pri_data(self, cur, typ, p, m, ts):
+    started_at = time.perf_counter() if DEBUG_SCORE_LATENCY else None
     self.pri_cache = [p, m]
-    # 1. 先计算最新的比赛得分
     self._update_score_state()
-    # 2. 再将计算好的得分写入日志 (Event Type 和 Timestamp 用当前的)
-    self._record_log("PRIMARY", typ, ts)
-    # 3. 广播给前端
+    self._schedule_record_log("PRIMARY", typ, ts)
     self._broadcast_update("score_update")
+    if DEBUG_SCORE_LATENCY:
+      print(f"[Score] pri_data done in {(time.perf_counter() - started_at) * 1000:.1f} ms")
 
   def _on_sec_data(self, cur, typ, p, m, ts):
+    started_at = time.perf_counter() if DEBUG_SCORE_LATENCY else None
     self.sec_cache = [p, m]
-    # 同上：副设备数据进来，先融合计算，再保存融合后的状态
     self._update_score_state()
-    self._record_log("SECONDARY", typ, ts)
+    self._schedule_record_log("SECONDARY", typ, ts)
     self._broadcast_update("score_update")
+    if DEBUG_SCORE_LATENCY:
+      print(f"[Score] sec_data done in {(time.perf_counter() - started_at) * 1000:.1f} ms")
 
   def _update_score_state(self):
-    """仅计算分数，不广播，不存储"""
     if self.mode == "SINGLE":
       self.score = {
         "total": self.pri_cache[0] - self.pri_cache[1],
         "plus": self.pri_cache[0],
         "minus": self.pri_cache[1],
-        "penalty": 0  # 单机模式暂无此概念，置为 0
+        "penalty": 0
       }
     else:
-      # 双机模式：Primary Plus 为正分，Secondary Plus 为负分
       pri_plus = self.pri_cache[0]
       sec_plus = self.sec_cache[0]
-
-      # 【新增】重点扣分 = 主机 Minus + 副机 Minus
-      # 且不影响 Total 分数的计算
       major_penalty = self.pri_cache[1] + self.sec_cache[1]
 
       self.score = {
@@ -421,32 +427,18 @@ class HeadlessReferee:
       }
 
   def _record_log(self, role, event_type, ble_timestamp):
-    """
-    统一日志记录
-    """
-    # 1. 获取当前比赛上下文
     group = match_state.get("current_group")
     contestant = match_state.get("current_contestant")
 
-    # 【修复 1】如果选手名为空或为默认占位符，直接丢弃数据
-    # 这解决了 Unknown_Player_Ref1.csv 的生成问题
     if not contestant or contestant == "Unknown_Player":
       return
 
-    # 2. 获取当前模式 (默认为 FREE)
     config = match_state.get("config") or {}
     mode = config.get("mode", "FREE")
-
-    # 自由模式 (FREE) 下的 0 分过滤
-    # 如果当前分数为 0 (Total=0, Plus=0, Minus=0)，且处于自由模式，则不记录
-    # 这过滤掉了 "点击下一位" 时触发的归零信号，也过滤了未上场选手的空文件
-    is_zero_score = (self.score['total'] == 0 and self.score['plus'] == 0 and self.score['minus'] == 0)
+    is_zero_score = self.score['total'] == 0 and self.score['plus'] == 0 and self.score['minus'] == 0
 
     if mode == 'FREE' and is_zero_score:
       return
-
-    # 注意：赛事模式 (TOURNAMENT) 下不拦截 0 分
-    # 这样如果该选手真实存在但没有得分，依然会生成一个包含 0 分记录的 CSV，证明该选手已参赛。
 
     event_details = {
       "role": role,
@@ -454,7 +446,6 @@ class HeadlessReferee:
       "timestamp": ble_timestamp
     }
 
-    # 调用 Storage Manager 写入数据
     storage_manager.log_data(group, self.index, contestant, self.score, event_details)
 
   def _broadcast_update(self, msg_type):
@@ -467,12 +458,10 @@ class HeadlessReferee:
     asyncio.create_task(self.broadcast({"type": msg_type, "payload": payload}))
 
 
-# ==========================================================
-# FastAPI 接口
-# ==========================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-  await scanner_manager.start()
+  global _main_loop
+  _main_loop = asyncio.get_running_loop()
   yield
   await scanner_manager.stop()
 
@@ -485,24 +474,28 @@ active_ws = []
 referees = {}
 export_manager = ExportManager(storage_manager)
 
+
 async def broadcast_json(data):
+  if DEBUG_SCORE_LATENCY and data.get("type") in ("score_update", "status_update"):
+    print(f"[WS] broadcast {data.get('type')} t={time.perf_counter():.3f} n_ws={len(active_ws)}")
   for ws in active_ws:
     try:
       await ws.send_json(data)
-    except:
+    except Exception:
       pass
 
-# 1. 获取全局设置
+
 @app.get("/api/settings")
 async def get_settings():
     return app_settings.settings
 
-# 2. 更新全局设置
+
 @app.post("/api/settings/update")
 async def update_settings(data: dict):
     for k, v in data.items():
         app_settings.set(k, v)
     return {"status": "ok", "settings": app_settings.settings}
+
 
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
@@ -510,17 +503,16 @@ async def ws_endpoint(websocket: WebSocket):
   active_ws.append(websocket)
   try:
     while True:
-      # 【修改】监听并处理前端发送的消息
       data = await websocket.receive_text()
       try:
         msg = json.loads(data)
-        # 如果收到“标记已打分”的消息，广播给所有连接的客户端（包括主窗口和悬浮窗）
         if msg.get("type") == "mark_scored":
-            await broadcast_json(msg)
-      except:
+          await broadcast_json(msg)
+      except Exception:
         pass
-  except:
-    if websocket in active_ws: active_ws.remove(websocket)
+  except Exception:
+    if websocket in active_ws:
+      active_ws.remove(websocket)
 
 
 @app.websocket("/ws/tracking")
@@ -532,30 +524,35 @@ async def tracking_endpoint(websocket: WebSocket):
       try:
         wins = await asyncio.to_thread(gw.getWindowsWithTitle, target)
         if wins:
-          w = wins[0]
-          await websocket.send_json({"found": True, "x": w.left, "y": w.top, "width": w.width, "height": w.height})
+          window = wins[0]
+          await websocket.send_json({
+            "found": True,
+            "x": window.left,
+            "y": window.top,
+            "width": window.width,
+            "height": window.height
+          })
         else:
           await websocket.send_json({"found": False})
-      except:
+      except Exception:
         pass
       await asyncio.sleep(0.05)
-  except:
+  except Exception:
     pass
 
 
 @app.get("/scan")
 async def scan_devices(flush: bool = False):
-  # 如果之前扫描没启动（例如蓝牙没开），现在尝试再次启动
   if not scanner_manager.is_scanning:
-      await scanner_manager.start()
+    await scanner_manager.start()
 
-  # 【新增】如果还是无法启动，返回错误信息给前端
   if scanner_manager.init_error:
-      return {"devices": [], "error": "Bluetooth Error: " + scanner_manager.init_error}
+    return {"devices": [], "error": "Bluetooth Error: " + scanner_manager.init_error}
 
   if flush:
     scanner_manager.clear_cache()
     await asyncio.sleep(1.5)
+
   return {"devices": scanner_manager.get_active_devices()}
 
 
@@ -563,11 +560,13 @@ async def scan_devices(flush: bool = False):
 async def setup(config: dict):
   await scanner_manager.stop()
   global referees
-  # 强制清理：调用 disconnect 方法，确保 intentional_disconnect 被设置
+
   cleanup_tasks = []
-  for r in referees.values():
-    if r.pri_dev: cleanup_tasks.append(r.pri_dev.disconnect())
-    if r.sec_dev: cleanup_tasks.append(r.sec_dev.disconnect())
+  for referee in referees.values():
+    if referee.pri_dev:
+      cleanup_tasks.append(referee.pri_dev.disconnect())
+    if referee.sec_dev:
+      cleanup_tasks.append(referee.sec_dev.disconnect())
   if cleanup_tasks:
     await asyncio.gather(*cleanup_tasks, return_exceptions=True)
 
@@ -578,26 +577,24 @@ async def setup(config: dict):
 
   for item in config.get("referees", []):
     idx = item.get("index")
-    r = HeadlessReferee(idx, item.get("name"), item.get("mode"), broadcast_json)
+    referee = HeadlessReferee(idx, item.get("name"), item.get("mode"), broadcast_json)
 
     pri_dev = cached_map.get(item.get("pri_addr"))
     sec_dev = cached_map.get(item.get("sec_addr"))
 
-    node_pri = None;
-    node_sec = None
-    if pri_dev:
-      node_pri = HeadlessDeviceNode(pri_dev, None, None)
-    if sec_dev and item.get("mode") == "DUAL":
-      node_sec = HeadlessDeviceNode(sec_dev, None, None)
+    node_pri = HeadlessDeviceNode(pri_dev, None, None) if pri_dev else None
+    node_sec = HeadlessDeviceNode(sec_dev, None, None) if sec_dev and item.get("mode") == "DUAL" else None
 
-    r.set_devices(node_pri, node_sec)
-    referees[idx] = r
+    referee.set_devices(node_pri, node_sec)
+    referees[idx] = referee
 
-    if node_pri: connect_tasks.append(node_pri.connect())
-    if node_sec: connect_tasks.append(node_sec.connect())
+    if node_pri:
+      connect_tasks.append(node_pri.connect())
+    if node_sec:
+      connect_tasks.append(node_sec.connect())
 
-  for coro in connect_tasks:
-    asyncio.create_task(coro)
+  for task in connect_tasks:
+    asyncio.create_task(task)
 
   return {"status": "ok"}
 
@@ -607,9 +604,12 @@ async def teardown():
   global referees
   print("Teardown requested...")
   tasks = []
-  for r in referees.values():
-    if r.pri_dev: tasks.append(r.pri_dev.disconnect())
-    if r.sec_dev: tasks.append(r.sec_dev.disconnect())
+
+  for referee in referees.values():
+    if referee.pri_dev:
+      tasks.append(referee.pri_dev.disconnect())
+    if referee.sec_dev:
+      tasks.append(referee.sec_dev.disconnect())
 
   if tasks:
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -621,23 +621,21 @@ async def teardown():
 
 @app.post("/reset")
 async def reset():
-  tasks = [r.reset() for r in referees.values()]
-  if tasks: await asyncio.gather(*tasks)
+  tasks = [referee.reset() for referee in referees.values()]
+  if tasks:
+    await asyncio.gather(*tasks)
   return {"status": "ok"}
 
 
 @app.post("/api/project/create")
 async def create_project(data: dict):
-  # data: { "name": "xxx", "mode": "TOURNAMENT" | "FREE" }
   config = storage_manager.create_project(data.get("name"), data.get("mode"))
   match_state["config"] = config
   return {"status": "ok", "config": config}
 
 
-# 2. 更新分组信息 (添加/编辑组别、裁判数、选手名单)
 @app.post("/api/project/update_groups")
 async def update_groups(data: dict):
-  # data: { "groups": [ ... ] }
   if not match_state["config"]:
     return {"status": "error", "msg": "No active project"}
 
@@ -645,27 +643,22 @@ async def update_groups(data: dict):
   match_state["config"]["groups"] = groups
   storage_manager.save_config(match_state["config"])
 
-  # 【新增】广播最新的分组信息给所有客户端（主窗口、悬浮窗）
-  # 这样当一端新增选手时，另一端能同步收到列表更新
   await broadcast_json({
-      "type": "groups_update",
-      "payload": {
-          "groups": groups
-      }
+    "type": "groups_update",
+    "payload": {
+      "groups": groups
+    }
   })
 
   return {"status": "ok"}
 
 
-# 3. 设置当前上下文 (切换到哪个组、哪个选手)
 @app.post("/api/match/set_context")
 async def set_context(data: dict):
-  # data: { "group": "GroupA", "contestant": "Player1" }
   match_state["current_group"] = data.get("group")
   match_state["current_contestant"] = data.get("contestant")
   print(f"Context updated: {match_state['current_contestant']}")
 
-  # 广播给前端，确保多端同步
   await broadcast_json({
     "type": "context_update",
     "payload": {
@@ -676,45 +669,47 @@ async def set_context(data: dict):
   return {"status": "ok"}
 
 
-# 4. 获取当前项目配置 (用于恢复)
 @app.get("/api/project/current")
 async def get_current_project():
   return match_state["config"]
 
+
 @app.get("/api/windows")
 async def get_windows():
-    """获取所有可见窗口的标题"""
     try:
-        # 过滤掉空标题和 default IME 等系统窗口
-        titles = [t for t in gw.getAllTitles() if t.strip()]
+        titles = [title for title in gw.getAllTitles() if title.strip()]
         return {"windows": titles}
     except Exception as e:
         print(f"List windows error: {e}")
         return {"windows": []}
 
+
 @app.post("/api/window/bounds")
 async def get_window_bounds(data: dict):
-    """获取指定标题窗口的坐标和大小"""
     title = data.get("title")
     try:
         wins = gw.getWindowsWithTitle(title)
         if wins:
-            w = wins[0]
-            # 返回 Electron setBounds 需要的格式
+            window = wins[0]
             return {
                 "found": True,
-                "bounds": {"x": w.left, "y": w.top, "width": w.width, "height": w.height}
+                "bounds": {
+                  "x": window.left,
+                  "y": window.top,
+                  "width": window.width,
+                  "height": window.height
+                }
             }
         return {"found": False}
-    except Exception as e:
+    except Exception:
         return {"found": False}
 
-# 5. 获取项目列表
+
 @app.get("/api/projects/list")
 async def get_projects_list():
     return {"projects": storage_manager.list_projects()}
 
-# 6. 加载历史项目 (用于 Continue Match)
+
 @app.post("/api/project/load")
 async def load_project(data: dict):
   dir_name = data.get("dir_name")
@@ -722,77 +717,59 @@ async def load_project(data: dict):
 
   if config:
     match_state["config"] = config
-
     groups = config.get("groups", [])
-    if groups and len(groups) > 0:
-      # 如果有组，取第一个组名
+    if groups:
       match_state["current_group"] = groups[0].get("name", "Unknown")
     else:
-      # 如果列表为空 (例如刚创建还没加组的空项目)，给个默认值
       match_state["current_group"] = "Free Mode"
-    # --- 修复结束 ---
 
     return {"status": "ok", "config": config}
 
   return {"status": "error", "msg": "Project not found"}
 
-# 7. 获取报表数据 (用于 View Details)
+
 @app.post("/api/project/report")
 async def get_project_report(data: dict):
     dir_name = data.get("dir_name")
-    # 1. 加载配置以获取组别结构
     config = storage_manager.load_project_config(dir_name)
-    # 2. 加载分数数据
     scores = storage_manager.load_report_data(dir_name)
     return {"status": "ok", "config": config, "scores": scores}
 
-# 8. 获取当前组打分状态
+
 @app.post("/api/group/status")
 async def get_group_status(data: dict):
     group_name = data.get("group")
     scored_list = storage_manager.get_scored_players(group_name)
     return {"status": "ok", "scored": scored_list}
 
-# 9. 删除项目
+
 @app.post("/api/project/delete")
 async def delete_project(data: dict):
     dir_name = data.get("dir_name")
     success = storage_manager.delete_project(dir_name)
     if success:
         return {"status": "ok"}
-    else:
-        return {"status": "error", "msg": "Failed to delete project"}
+    return {"status": "error", "msg": "Failed to delete project"}
 
 
 @app.post("/api/export/details")
 async def export_details(data: dict):
-  """
-  导出详情压缩包
-  data: {
-    "group": "GroupA",
-    "players": ["P1", "P2"],
-    "options": { "txt": true, "srt": true, "srt_mode": "REALTIME" }
-  }
-  """
   group_name = data.get("group")
   players = data.get("players", [])
   options = data.get("options", {})
 
-  # 在后台生成 ZIP
   zip_io = await asyncio.to_thread(export_manager.generate_zip, group_name, players, options)
 
   if not zip_io:
     return {"status": "error", "msg": "No data found"}
 
-  # 返回流式响应
   safe_name = "".join([c for c in group_name if c.isalnum() or c in (' ', '_', '-')]).strip()
   headers = {
     'Content-Disposition': f'attachment; filename="Details_{safe_name}.zip"'
   }
   return StreamingResponse(zip_io, media_type="application/zip", headers=headers)
 
+
 if __name__ == "__main__":
-    # 获取端口
-    SERVER_PORT = load_config()
-    # 使用动态端口启动
-    uvicorn.run(app, host="127.0.0.1", port=SERVER_PORT)
+    server_port = load_config()
+    uvicorn.run(app, host="127.0.0.1", port=server_port)
