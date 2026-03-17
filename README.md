@@ -126,7 +126,7 @@ FT_Engine/
 - BLE Protocol: [docs/BLE_PROTOCOL.md](docs/BLE_PROTOCOL.md)
 
 ## License
-Proprietary / Custom License (contact Freakthrow for details).
+This project is licensed under the [MIT License](LICENSE).
 
 ## Author
 Freakthrow Team
