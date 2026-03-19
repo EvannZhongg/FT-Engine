@@ -11,7 +11,8 @@ DEFAULT_SETTINGS = {
     "reset_shortcut": "Ctrl+G",
     "suppress_reset_confirm": False,
     "device_remarks": {},
-    "obs_protect_main": False
+    "obs_protect_main": False,
+    "project_preferences": {}
 }
 
 class AppSettings:
@@ -46,6 +47,29 @@ class AppSettings:
         """设置配置项并立即保存"""
         self.settings[key] = value
         self.save()
+
+    def get_project_preference(self, project_dir, key, default=None):
+        prefs = self.settings.get("project_preferences") or {}
+        project_prefs = prefs.get(project_dir) or {}
+        return project_prefs.get(key, default)
+
+    def set_project_preference(self, project_dir, key, value):
+        if not project_dir:
+            return
+
+        prefs = self.settings.setdefault("project_preferences", {})
+        project_prefs = prefs.setdefault(project_dir, {})
+        project_prefs[key] = value
+        self.save()
+
+    def remove_project_preferences(self, project_dir):
+        if not project_dir:
+            return
+
+        prefs = self.settings.get("project_preferences") or {}
+        if project_dir in prefs:
+            del prefs[project_dir]
+            self.save()
 
 # 全局单例
 app_settings = AppSettings()

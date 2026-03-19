@@ -1,7 +1,7 @@
 {
   "name": "ft-engine",
   "productName": "FT Engine",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Professional Electronic Referee System by freakthrow",
   "main": "./out/main/index.js",
   "author": {
@@ -68,7 +68,7 @@
           ]
         }
       ],
-      "legalTrademarks": "Freakthrow™",
+      "legalTrademarks": "freakthrow™",
       "extraResources": [
         {
           "from": "./backend-engine.exe",

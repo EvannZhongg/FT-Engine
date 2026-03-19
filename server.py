@@ -155,6 +155,38 @@ class ScannerManager:
 scanner_manager = ScannerManager()
 
 
+async def resolve_ble_device(address: str):
+  scanner_manager.get_active_devices()
+  entry = scanner_manager.found_devices.get(address)
+  if entry:
+    return entry["device"]
+
+  try:
+    return await BleakScanner.find_device_by_address(address, timeout=4.0)
+  except Exception:
+    return None
+
+
+async def send_rename_command(ble_device, name: str):
+  client = BleakClient(ble_device)
+  payload = b"\x02" + name.encode("utf-8")
+
+  try:
+    await client.connect()
+    await asyncio.sleep(0.3)
+    await client.write_gatt_char(CHARACTERISTIC_UUID, payload, response=True)
+    await asyncio.sleep(0.3)
+    return True, ""
+  except Exception as e:
+    return False, str(e)
+  finally:
+    try:
+      if client.is_connected:
+        await client.disconnect()
+    except Exception:
+      pass
+
+
 class HeadlessDeviceNode:
   def __init__(self, ble_device, on_data_callback, on_status_callback):
     self.ble_device = ble_device
@@ -627,6 +659,57 @@ async def reset():
   return {"status": "ok"}
 
 
+@app.post("/api/devices/rename")
+async def rename_devices(data: dict):
+  requests = data.get("devices") or []
+  if not isinstance(requests, list):
+    return {"status": "error", "msg": "Invalid devices payload", "results": []}
+
+  was_scanning = scanner_manager.is_scanning
+  results = []
+
+  if was_scanning:
+    await scanner_manager.stop()
+
+  try:
+    for item in requests:
+      address = (item.get("address") or "").strip()
+      name = (item.get("name") or "").strip()
+
+      if not address or not name:
+        results.append({
+          "address": address,
+          "name": name,
+          "status": "error",
+          "msg": "Missing address or name"
+        })
+        continue
+
+      ble_device = await resolve_ble_device(address)
+      if not ble_device:
+        results.append({
+          "address": address,
+          "name": name,
+          "status": "error",
+          "msg": "Device not found"
+        })
+        continue
+
+      ok, err = await send_rename_command(ble_device, name)
+      results.append({
+        "address": address,
+        "name": name,
+        "status": "ok" if ok else "error",
+        "msg": err
+      })
+  finally:
+    if was_scanning:
+      scanner_manager.clear_cache()
+      await scanner_manager.start()
+
+  return {"status": "ok", "results": results}
+
+
 @app.post("/api/project/create")
 async def create_project(data: dict):
   config = storage_manager.create_project(data.get("name"), data.get("mode"))
@@ -748,6 +831,7 @@ async def delete_project(data: dict):
     dir_name = data.get("dir_name")
     success = storage_manager.delete_project(dir_name)
     if success:
+        app_settings.remove_project_preferences(dir_name)
         return {"status": "ok"}
     return {"status": "error", "msg": "Failed to delete project"}
 

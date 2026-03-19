@@ -191,7 +191,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
 import { Info } from 'lucide-vue-next'
@@ -209,7 +209,7 @@ const scaleRatio = ref(60)
 
 // 高级设置状态
 const showAdvancedModal = ref(false)
-const enablePenalty = ref(false)
+const enablePenalty = ref(true)
 const showPenaltyHint = ref(false)
 
 // 导出相关状态
@@ -222,6 +222,7 @@ const exportOpts = ref({
 })
 
 onMounted(async () => {
+  await store.fetchSettings()
   if (props.projectDir) {
     const data = await store.fetchReportData(props.projectDir)
     if (data) {
@@ -230,7 +231,21 @@ onMounted(async () => {
       if (groups.value.length > 0) currentGroup.value = groups.value[0]
     }
   }
+
+  const savedPenaltyPref = store.getProjectPreference(props.projectDir, 'show_penalty', undefined)
+  enablePenalty.value = savedPenaltyPref ?? true
+  if (props.projectDir && savedPenaltyPref === undefined) {
+    await store.updateProjectPreference(props.projectDir, 'show_penalty', true)
+  }
 })
+
+watch(
+  () => enablePenalty.value,
+  async (value) => {
+    if (!props.projectDir) return
+    await store.updateProjectPreference(props.projectDir, 'show_penalty', !!value)
+  }
+)
 
 const togglePenaltyHint = () => {
   showPenaltyHint.value = !showPenaltyHint.value
@@ -419,6 +434,17 @@ const confirmBatchExport = async () => {
   }
 }
 
+const formatRawCsvCell = (detail) => {
+  if (!detail || detail.total === '-') return '-'
+
+  const total = Number(detail.total) || 0
+  const plus = Number(detail.plus) || 0
+  const minus = Number(detail.minus) || 0
+  const penalty = Number(detail.penalty) || 0
+
+  return `${total} (+${plus}/-${minus}/-${penalty})`
+}
+
 // --- CSV 导出逻辑 ---
 const exportCSV = () => {
   if (!currentGroup.value) return
@@ -456,8 +482,7 @@ const exportCSV = () => {
       let line = [player]
       for(let i=1; i<=refCount; i++) {
         const d = getRawDetail(player, i)
-        const t = d.total === '-' ? 0 : d.total
-        line.push(t)
+        line.push(formatRawCsvCell(d))
       }
       line.push(getRawAverage(player).toFixed(2))
       csvContent += line.join(',') + "\n"

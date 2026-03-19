@@ -9,29 +9,27 @@ fastapi==0.124.2
 h11==0.16.0
 idna==3.11
 packaging==25.0
-pefile==2024.8.26; sys_platform == "win32"
+pefile==2024.8.26
 pydantic==2.12.5
-pydantic_core==2.41.5
-PyGetWindow==0.0.9
-pyobjc-framework-Quartz==10.1; sys_platform == "darwin"
+pydantic-core==2.41.5
+pygetwindow==0.0.9
 pyinstaller==6.17.0
 pyinstaller-hooks-contrib==2025.10
-PyRect==0.2.0
-pywin32-ctypes==0.2.3; sys_platform == "win32"
-PyYAML==6.0.3
+pyrect==0.2.0
+pywin32-ctypes==0.2.3
+pyyaml==6.0.3
 setuptools==80.9.0
 starlette==0.50.0
+typing-extensions==4.15.0
 typing-inspection==0.4.2
-typing_extensions==4.15.0
 uvicorn==0.38.0
 websockets==15.0.1
-winrt-runtime==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Bluetooth==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Bluetooth.Advertisement==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Bluetooth.GenericAttributeProfile==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Enumeration==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Radios==3.2.1; sys_platform == "win32"
-winrt-Windows.Foundation==3.2.1; sys_platform == "win32"
-winrt-Windows.Foundation.Collections==3.2.1; sys_platform == "win32"
-winrt-Windows.Storage.Streams==3.2.1; sys_platform == "win32"
-
+winrt-runtime==3.2.1
+winrt-windows-devices-bluetooth==3.2.1
+winrt-windows-devices-bluetooth-advertisement==3.2.1
+winrt-windows-devices-bluetooth-genericattributeprofile==3.2.1
+winrt-windows-devices-enumeration==3.2.1
+winrt-windows-devices-radios==3.2.1
+winrt-windows-foundation==3.2.1
+winrt-windows-foundation-collections==3.2.1
+winrt-windows-storage-streams==3.2.1

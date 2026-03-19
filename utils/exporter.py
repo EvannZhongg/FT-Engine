@@ -37,10 +37,10 @@ class ExportManager:
                 if player not in data_map: continue
                 player_refs = data_map[player]
                 for ref_idx, events in player_refs.items():
-                    # 导出 TXT
+                    # 导出日志 CSV
                     if options.get('txt'):
-                        txt_content = self._generate_txt_content(events)
-                        zf.writestr(f"{group_name}/{player}/Ref{ref_idx}_Log.txt", txt_content)
+                        log_csv_content = self._generate_log_csv_content(events)
+                        zf.writestr(f"{group_name}/{player}/Ref{ref_idx}_Log.csv", log_csv_content)
                     # 导出 SRT
                     if options.get('srt'):
                         srt_mode = options.get('srt_mode', 'TOTAL')
@@ -79,7 +79,8 @@ class ExportManager:
                             "dt": dt,
                             "plus": int(row.get("TotalPlus") or 0),
                             "minus": int(row.get("TotalMinus") or 0),
-                            "total": int(row.get("CurrentTotal") or 0)
+                            "total": int(row.get("CurrentTotal") or 0),
+                            "major_penalty": int(row.get("MajorPenalty") or row.get("penalty") or 0)
                         })
                     except: pass
 
@@ -89,16 +90,19 @@ class ExportManager:
                 data[p][r].sort(key=lambda x: x['dt'])
         return data
 
-    def _generate_txt_content(self, events):
-        """生成 TXT: 时间戳 | 正分 | 总分 | 负分"""
-        lines = ["Timestamp\tPlus\tTotal\tMinus"]
-        if not events: return ""
+    def _generate_log_csv_content(self, events):
+        """生成日志 CSV: Timestamp, Plus, Minus, Total, MajorPenalty"""
+        lines = ["Timestamp,Plus,Minus,Total,MajorPenalty"]
+        if not events:
+            return "\n".join(lines)
 
         start_time = events[0]['dt']
         for e in events:
             # 相对时间 (秒)
             delta = (e['dt'] - start_time).total_seconds()
-            lines.append(f"{delta:.3f}\t{e['plus']}\t{e['total']}\t{e['minus']}")
+            lines.append(
+                f"{delta:.3f},{e['plus']},{e['minus']},{e['total']},{e.get('major_penalty', 0)}"
+            )
 
         return "\n".join(lines)
 

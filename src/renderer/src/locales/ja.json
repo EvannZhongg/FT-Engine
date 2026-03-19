@@ -152,7 +152,7 @@
   "rpt_lbl_sel_players": "選手を選択",
   "rpt_lbl_all": "すべて",
   "rpt_lbl_fmt": "形式オプション",
-  "rpt_opt_txt": "TXT（ログ）",
+  "rpt_opt_txt": "CSV（ログ）",
   "rpt_opt_srt": "SRT（字幕）",
   "rpt_lbl_srt_mode": "SRT モード:",
   "rpt_srt_total": "合計スコア",
@@ -173,6 +173,14 @@
 
   "title_device_remarks": "デバイス備考設定",
   "msg_device_remarks": "デバイスにカスタム名を設定します（全体に保存）。",
+  "title_device_rename_confirm": "デバイス名を恒久変更",
+  "msg_device_rename_confirm": "以下のデバイスは備考が変更されました。BLE 名として恒久的に書き込む項目を選択できます。旧ファーム用のローカル備考も保持されます。",
+  "lbl_rename_to": "書き込み名",
+  "btn_skip": "今はしない",
+  "btn_apply_rename": "選択項目を書き込む",
+  "msg_device_rename_success": "{count} 台のデバイス名を恒久変更しました。",
+  "msg_device_rename_partial": "恒久変更は一部完了しました。成功 {success} 台、失敗 {failed} 台です。備考は保存済みです。",
+  "msg_device_rename_fail": "恒久変更に失敗しましたが、備考は保存されました。",
   "ph_add_remark": "備考を追加...",
   "msg_no_devices": "デバイスがまだ見つかりません。",
   "btn_save": "保存"

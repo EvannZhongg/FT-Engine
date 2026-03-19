@@ -120,10 +120,6 @@ FT_Engine/
 - `utils/runtime.py`：统一解析配置路径与可写数据目录
 - `scripts/`：打包阶段使用的辅助脚本，不会作为用户运行时功能直接打入界面
 
-## 文档
-- 后端接口：[docs/BACKEND_API_zh.md](docs/BACKEND_API_zh.md)
-- BLE 协议：[docs/BLE_PROTOCOL_zh.md](docs/BLE_PROTOCOL_zh.md)
-
 ## License
 Proprietary / Custom License（如需授权请联系 Freakthrow）。
 

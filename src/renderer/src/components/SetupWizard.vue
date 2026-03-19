@@ -259,6 +259,46 @@
       </div>
     </div>
 
+    <div v-if="showRenameModal" class="overlay">
+      <div class="import-dialog alias-dialog rename-dialog">
+        <h3>{{ $t('title_device_rename_confirm') }}</h3>
+        <p class="sub-text">{{ $t('msg_device_rename_confirm') }}</p>
+
+        <div class="column-list custom-scroll">
+          <div v-for="item in renameCandidates" :key="item.address" class="rename-item">
+            <label class="rename-check">
+              <input
+                type="checkbox"
+                :checked="!!selectedRenameDevices[item.address]"
+                :disabled="isApplyingRename"
+                @change="selectedRenameDevices[item.address] = $event.target.checked"
+              />
+              <span class="checkbox-mark"></span>
+            </label>
+            <div class="dev-info">
+              <div class="dev-name">{{ item.currentName }}</div>
+              <div class="dev-addr">{{ item.address }}</div>
+            </div>
+            <div class="rename-target">
+              <div class="target-label">{{ $t('lbl_rename_to') }}</div>
+              <div class="target-name">{{ item.targetName }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="btn-secondary" @click="dismissRenameModal" :disabled="isApplyingRename">{{ $t('btn_skip') }}</button>
+          <button
+            class="btn-primary"
+            @click="confirmPermanentRename"
+            :disabled="isApplyingRename || selectedRenameCount === 0"
+          >
+            {{ isApplyingRename ? $t('status_scanning') : $t('btn_apply_rename') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -294,6 +334,11 @@ const selectedColumnIdx = ref(0)
 // --- 【新增】设备备注相关状态 ---
 const showAliasModal = ref(false)
 const tempRemarks = reactive({}) // 暂存编辑中的备注 { "MAC": "Remark" }
+const showRenameModal = ref(false)
+const renameCandidates = ref([])
+const selectedRenameDevices = reactive({})
+const isApplyingRename = ref(false)
+const selectedRenameCount = computed(() => renameCandidates.value.filter(item => selectedRenameDevices[item.address]).length)
 
 onMounted(async () => {
   if (isResuming.value) {
@@ -419,19 +464,92 @@ const openAliasModal = () => {
   showAliasModal.value = true
 }
 
+const openRenameModal = (candidates) => {
+  renameCandidates.value = candidates
+  Object.keys(selectedRenameDevices).forEach(key => delete selectedRenameDevices[key])
+  candidates.forEach(item => {
+    selectedRenameDevices[item.address] = true
+  })
+  showRenameModal.value = true
+}
+
+const resetRenameModal = () => {
+  showRenameModal.value = false
+  renameCandidates.value = []
+  Object.keys(selectedRenameDevices).forEach(key => delete selectedRenameDevices[key])
+}
+
+const dismissRenameModal = () => {
+  if (isApplyingRename.value) return
+  resetRenameModal()
+}
+
 // 【新增】保存备注
 const saveAliases = async () => {
-  for (const mac in tempRemarks) {
-    const val = tempRemarks[mac]
-    await store.saveDeviceRemark(mac, val)
+  const changedRenameCandidates = scannedDevices.value
+    .map(dev => {
+      const nextRemark = (tempRemarks[dev.address] || '').trim()
+      const prevRemark = ((store.appSettings.device_remarks && store.appSettings.device_remarks[dev.address]) || '').trim()
+      if (!nextRemark || nextRemark === prevRemark) return null
+      return {
+        address: dev.address,
+        currentName: dev.name,
+        targetName: nextRemark
+      }
+    })
+    .filter(Boolean)
+
+  for (const dev of scannedDevices.value) {
+    const val = (tempRemarks[dev.address] || '').trim()
+    await store.saveDeviceRemark(dev.address, val)
 
     // 手动更新当前扫描列表中的显示
-    const dev = scannedDevices.value.find(d => d.address === mac)
-    if (dev) {
-      dev.remark = val
-    }
+    dev.remark = val
   }
   showAliasModal.value = false
+
+  if (changedRenameCandidates.length > 0) {
+    openRenameModal(changedRenameCandidates)
+  }
+}
+
+const confirmPermanentRename = async () => {
+  const targets = renameCandidates.value.filter(item => selectedRenameDevices[item.address])
+  if (targets.length === 0) {
+    dismissRenameModal()
+    return
+  }
+
+  isApplyingRename.value = true
+  try {
+    const results = await store.renameDevices(targets.map(item => ({
+      address: item.address,
+      name: item.targetName
+    })))
+    const failed = results.filter(item => item.status !== 'ok')
+
+    resetRenameModal()
+    try {
+      await startScan(true)
+    } catch (scanError) {
+      console.error("Scan refresh after rename failed", scanError)
+    }
+
+    if (failed.length === 0) {
+      alert(t('msg_device_rename_success', { count: results.length }))
+    } else {
+      alert(t('msg_device_rename_partial', {
+        success: results.length - failed.length,
+        failed: failed.length
+      }))
+    }
+  } catch (e) {
+    console.error("Permanent rename failed", e)
+    resetRenameModal()
+    alert(t('msg_device_rename_fail'))
+  } finally {
+    isApplyingRename.value = false
+  }
 }
 
 const onModeChange = (binding) => { if (binding.mode === 'SINGLE') binding.sec_addr = '' }
@@ -520,6 +638,79 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await store
     text-align: center;
     padding: 20px;
     color: #888;
+  }
+}
+
+.rename-dialog {
+  width: 620px;
+
+  .rename-item {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) 180px;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #333;
+
+    &:last-child { border-bottom: none; }
+  }
+
+  .rename-check {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    input {
+      position: absolute;
+      opacity: 0;
+      inset: 0;
+      cursor: pointer;
+    }
+
+    .checkbox-mark {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #111;
+      display: inline-block;
+      position: relative;
+    }
+
+    input:checked + .checkbox-mark {
+      background: #3498db;
+      border-color: #3498db;
+    }
+
+    input:checked + .checkbox-mark::after {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 1px;
+      width: 5px;
+      height: 10px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+  }
+
+  .rename-target {
+    text-align: right;
+
+    .target-label {
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .target-name {
+      color: #7fd0ff;
+      font-weight: bold;
+      word-break: break-word;
+    }
   }
 }
 

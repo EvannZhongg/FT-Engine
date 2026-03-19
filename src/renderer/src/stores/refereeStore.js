@@ -16,7 +16,8 @@ export const useRefereeStore = defineStore('referee', {
       suppress_reset_confirm: false,
       suppress_zero_confirm: false,
       device_remarks: {},
-      obs_protect_main: false
+      obs_protect_main: false,
+      project_preferences: {}
     },
     scoredPlayers: new Set()
   }),
@@ -143,6 +144,34 @@ export const useRefereeStore = defineStore('referee', {
       this.appSettings.device_remarks[address] = remark
       // 同步到后端
       await this.updateSetting('device_remarks', this.appSettings.device_remarks)
+    },
+
+    getProjectPreference(dirName, key, defaultValue = null) {
+      const prefs = this.appSettings.project_preferences || {}
+      return prefs[dirName]?.[key] ?? defaultValue
+    },
+
+    async updateProjectPreference(dirName, key, value) {
+      if (!dirName) return
+      if (!this.appSettings.project_preferences) {
+        this.appSettings.project_preferences = {}
+      }
+      if (!this.appSettings.project_preferences[dirName]) {
+        this.appSettings.project_preferences[dirName] = {}
+      }
+
+      this.appSettings.project_preferences[dirName][key] = value
+      await this.updateSetting('project_preferences', this.appSettings.project_preferences)
+    },
+
+    async renameDevices(devices) {
+      try {
+        const res = await axios.post(`${this.apiBase}/api/devices/rename`, {devices})
+        return res.data.results || []
+      } catch (e) {
+        console.error("Rename devices failed:", e)
+        throw e
+      }
     },
 
     // --- 3. 项目与组别管理 API ---
@@ -364,6 +393,9 @@ export const useRefereeStore = defineStore('referee', {
     async deleteProject(dirName) {
       try {
         const res = await axios.post(`${this.apiBase}/api/project/delete`, {dir_name: dirName})
+        if (res.data.status === 'ok' && this.appSettings.project_preferences) {
+          delete this.appSettings.project_preferences[dirName]
+        }
         return res.data.status === 'ok'
       } catch (e) {
         console.error("Delete project failed", e)

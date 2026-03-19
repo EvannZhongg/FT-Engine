@@ -152,7 +152,7 @@
   "rpt_lbl_sel_players": "Select Players",
   "rpt_lbl_all": "All",
   "rpt_lbl_fmt": "Format Options",
-  "rpt_opt_txt": "TXT (Log)",
+  "rpt_opt_txt": "CSV (Log)",
   "rpt_opt_srt": "SRT (Subtitle)",
   "rpt_lbl_srt_mode": "SRT Mode:",
   "rpt_srt_total": "Total Score",
@@ -173,6 +173,14 @@
 
   "title_device_remarks": "Device Remarks Settings",
   "msg_device_remarks": "Set custom names for devices (saved globally).",
+  "title_device_rename_confirm": "Permanently Rename Devices",
+  "msg_device_rename_confirm": "The following device remarks changed. Select which ones should also be written to the device BLE name. Local remarks will still be kept for older firmware.",
+  "lbl_rename_to": "Write Name",
+  "btn_skip": "Not Now",
+  "btn_apply_rename": "Rename Selected",
+  "msg_device_rename_success": "Permanently renamed {count} device(s).",
+  "msg_device_rename_partial": "Permanent rename partially completed: {success} succeeded, {failed} failed. Remarks were still saved.",
+  "msg_device_rename_fail": "Permanent rename failed, but remarks were still saved.",
   "ph_add_remark": "Add remark...",
   "msg_no_devices": "No devices found yet.",
   "btn_save": "Save"

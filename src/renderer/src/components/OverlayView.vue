@@ -68,7 +68,7 @@
       v-for="(ref, refKey) in store.referees"
       :key="refKey"
       class="score-card draggable-card"
-      :style="[getCardStyle(refKey), cardStyle]"
+      :style="[getCardStyle(refKey), cardStyle, scoreScaleStyle]"
       @mousedown="startDrag($event, refKey)"
       @mouseenter="setIgnoreMouse(false)"
       @mouseleave="handleCardLeave"
@@ -79,7 +79,13 @@
 
       <div class="score-body">
 
-        <div v-if="config.displayMode === 'SPLIT'" class="score-grid-row">
+        <div
+          v-if="config.displayMode === 'SPLIT'"
+          class="score-grid-row font-scale-target"
+          :class="{ active: fontScaleTargetKey === refKey }"
+          @mousedown="handleFontTargetMouseDown($event, refKey)"
+          @wheel="handleFontWheel($event, refKey)"
+        >
           <div class="grid-cell right-align">
             <span class="score-val plus">+{{ ref.plus }}</span>
           </div>
@@ -95,7 +101,13 @@
           </div>
         </div>
 
-        <div v-else-if="config.displayMode === 'TOTAL'" class="score-single-row">
+        <div
+          v-else-if="config.displayMode === 'TOTAL'"
+          class="score-single-row font-scale-target"
+          :class="{ active: fontScaleTargetKey === refKey }"
+          @mousedown="handleFontTargetMouseDown($event, refKey)"
+          @wheel="handleFontWheel($event, refKey)"
+        >
           <span class="score-val total">{{ ref.total }}</span>
           <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
              <span class="score-divider total-divider">/</span>
@@ -103,7 +115,13 @@
           </template>
         </div>
 
-        <div v-else-if="config.displayMode === 'COMBINED'" class="score-combined-col">
+        <div
+          v-else-if="config.displayMode === 'COMBINED'"
+          class="score-combined-col font-scale-target"
+          :class="{ active: fontScaleTargetKey === refKey }"
+          @mousedown="handleFontTargetMouseDown($event, refKey)"
+          @wheel="handleFontWheel($event, refKey)"
+        >
           <div class="combined-total">{{ ref.total }}</div>
           <div class="combined-detail">
             <span class="mini-plus">+{{ ref.plus }}</span>
@@ -116,7 +134,13 @@
           </div>
         </div>
 
-        <div v-else-if="config.displayMode === 'REALTIME'" class="score-grid-row realtime-layout">
+        <div
+          v-else-if="config.displayMode === 'REALTIME'"
+          class="score-grid-row realtime-layout font-scale-target"
+          :class="{ active: fontScaleTargetKey === refKey }"
+          @mousedown="handleFontTargetMouseDown($event, refKey)"
+          @wheel="handleFontWheel($event, refKey)"
+        >
           <div class="grid-cell right-align fixed-slot">
             <transition name="pop">
               <span v-if="getRealTimeScore(refKey, 'plus') > 0" class="score-val plus rt-val">
@@ -158,7 +182,14 @@ import WaveformWidget from './WaveformWidget.vue'
 
 const store = useRefereeStore()
 const GRID_SIZE = 20
+const MIN_REF_CARD_W = 100
+const MIN_REF_CARD_H = 60
+const MIN_FONT_SCALE = 0.6
+const MAX_FONT_SCALE = 2.4
+const FONT_SCALE_STEP = 0.05
+const FONT_SCALE_SELECTOR = '.score-val, .score-divider, .combined-total, .combined-detail, .score-divider-small'
 const cardPositions = reactive({})
+const fontScaleTargetKey = ref(null)
 let draggingRefKey = null
 let dragOffset = { x: 0, y: 0 }
 let isDragging = false
@@ -181,7 +212,8 @@ const DISPLAY_DURATION = 1000
 const defaultConfig = {
   opacity: 0.85,
   color: '#141414',
-  displayMode: 'SPLIT'
+  displayMode: 'SPLIT',
+  fontScale: 1
 }
 const config = reactive({ ...defaultConfig })
 
@@ -191,13 +223,16 @@ const loadConfig = () => {
     try {
       const parsed = JSON.parse(saved)
       Object.assign(config, parsed)
-    } catch(e) {}
+    } catch {
+      // Ignore invalid persisted overlay config.
+    }
   }
 }
 watch(config, (newVal) => {
   localStorage.setItem('overlay_config_v2', JSON.stringify(newVal))
 })
 const resetStyle = () => Object.assign(config, defaultConfig)
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
 const cardStyle = computed(() => {
   const hex = config.color
@@ -210,6 +245,9 @@ const cardStyle = computed(() => {
     borderLeftColor: config.opacity < 0.1 ? 'transparent' : '#3498db'
   }
 })
+const scoreScaleStyle = computed(() => ({
+  '--score-font-scale': `${config.fontScale || 1}`
+}))
 
 watch(() => store.referees, (newRefs) => {
   Object.keys(newRefs).forEach(key => {
@@ -288,15 +326,19 @@ const getRealTimeScore = (key, type) => {
 const onDockEnter = () => { isDockVisible.value = true; setIgnoreMouse(false) }
 const onDockLeave = () => {
   if (!showSettings.value) isDockVisible.value = false
-  if (!isDragging && !showSettings.value) setIgnoreMouse(true)
+  if (!isDragging && !isResizing && !showSettings.value) setIgnoreMouse(true)
 }
 const toggleSettings = () => { showSettings.value = !showSettings.value }
 
 const handleBackgroundClick = () => {
+  clearFontScaling()
   if (showSettings.value) {
     showSettings.value = false
     setIgnoreMouse(true)
+    return
   }
+
+  if (!isDragging && !isResizing) setIgnoreMouse(true)
 }
 
 if (window.electron) {
@@ -329,9 +371,86 @@ watch(showWaveform, (val) => {
   else if (resizeObserver) resizeObserver.disconnect()
 })
 
+const getRefereeKeys = () => Object.keys(store.referees)
+
+const getSharedRefCardSize = () => {
+  for (const refKey of getRefereeKeys()) {
+    const pos = cardPositions[refKey]
+    if (pos?.w && pos?.h) {
+      return { w: pos.w, h: pos.h }
+    }
+  }
+  return null
+}
+
+const syncRefCardSize = (width, height) => {
+  const syncedWidth = Math.max(MIN_REF_CARD_W, width)
+  const syncedHeight = Math.max(MIN_REF_CARD_H, height)
+
+  getRefereeKeys().forEach((refKey, idx) => {
+    if (!cardPositions[refKey]) {
+      cardPositions[refKey] = { x: 20, y: 80 + (idx * 120) }
+    }
+
+    cardPositions[refKey].w = syncedWidth
+    cardPositions[refKey].h = syncedHeight
+  })
+}
+
+const clearFontScaling = () => {
+  fontScaleTargetKey.value = null
+}
+
+const activateFontScaling = (key) => {
+  if (isDragging || isResizing) return
+  fontScaleTargetKey.value = key
+  setIgnoreMouse(false)
+}
+
+const isFontScaleHit = (target) => {
+  return target instanceof Element && Boolean(target.closest(FONT_SCALE_SELECTOR))
+}
+
+const handleFontTargetMouseDown = (e, key) => {
+  if (!isFontScaleHit(e.target)) return
+  e.stopPropagation()
+  e.preventDefault()
+  activateFontScaling(key)
+}
+
+const handleFontWheel = (e, key) => {
+  if (isDragging || isResizing) return
+  if (fontScaleTargetKey.value !== key || !isFontScaleHit(e.target)) return
+
+  e.stopPropagation()
+  e.preventDefault()
+
+  const delta = e.deltaY < 0 ? FONT_SCALE_STEP : -FONT_SCALE_STEP
+  const nextScale = clamp(
+    Number(((config.fontScale || 1) + delta).toFixed(2)),
+    MIN_FONT_SCALE,
+    MAX_FONT_SCALE
+  )
+
+  config.fontScale = nextScale
+}
+
 const initCardPositions = () => {
+  const sharedSize = getSharedRefCardSize()
   Object.keys(store.referees).forEach((refKey, idx) => {
-    if (!cardPositions[refKey]) cardPositions[refKey] = { x: 20, y: 80 + (idx * 120) }
+    if (!cardPositions[refKey]) {
+      cardPositions[refKey] = {
+        x: 20,
+        y: 80 + (idx * 120),
+        ...(sharedSize || {})
+      }
+      return
+    }
+
+    if (sharedSize) {
+      if (!cardPositions[refKey].w) cardPositions[refKey].w = sharedSize.w
+      if (!cardPositions[refKey].h) cardPositions[refKey].h = sharedSize.h
+    }
   })
   if (!cardPositions['waveform']) {
     const initW = 600
@@ -393,7 +512,10 @@ onUnmounted(() => {
 
 const closeOverlay = () => { if (window.electron) window.electron.ipcRenderer.send('close-overlay') }
 const setIgnoreMouse = (ignore) => { if (window.electron) window.electron.ipcRenderer.send('set-ignore-mouse', ignore) }
-const handleCardLeave = () => { if (!isDragging && !showSettings.value) setIgnoreMouse(true) }
+const handleCardLeave = () => {
+  clearFontScaling()
+  if (!isDragging && !isResizing && !showSettings.value) setIgnoreMouse(true)
+}
 const toggleWaveform = () => { showWaveform.value = !showWaveform.value }
 
 const getWaveformStyle = () => {
@@ -422,6 +544,7 @@ const startResize = (e, key) => {
   if (e.button !== 0) return
   isResizing = true
   draggingRefKey = key
+  clearFontScaling()
   setIgnoreMouse(false)
 
   const pos = cardPositions[key]
@@ -431,6 +554,8 @@ const startResize = (e, key) => {
     pos.w = Math.round(rect.width / GRID_SIZE) * GRID_SIZE
     pos.h = Math.round(rect.height / GRID_SIZE) * GRID_SIZE
   }
+
+  syncRefCardSize(pos.w, pos.h)
 
   resizeState.startX = e.clientX
   resizeState.startY = e.clientY
@@ -449,6 +574,7 @@ const startDrag = (e, key) => {
     if (key === 'waveform' && isRightEdge && isBottomEdge) return
   }
 
+  clearFontScaling()
   isDragging = true
   draggingRefKey = key
   setIgnoreMouse(false)
@@ -463,13 +589,17 @@ const onDrag = (e) => {
     const dx = e.clientX - resizeState.startX
     const dy = e.clientY - resizeState.startY
 
-    const newW = Math.max(100, Math.round((resizeState.startW + dx) / GRID_SIZE) * GRID_SIZE)
-    const newH = Math.max(60, Math.round((resizeState.startH + dy) / GRID_SIZE) * GRID_SIZE)
+    const newW = Math.max(MIN_REF_CARD_W, Math.round((resizeState.startW + dx) / GRID_SIZE) * GRID_SIZE)
+    const newH = Math.max(MIN_REF_CARD_H, Math.round((resizeState.startH + dy) / GRID_SIZE) * GRID_SIZE)
 
-    const pos = cardPositions[draggingRefKey]
-    if (pos) {
-      pos.w = newW
-      pos.h = newH
+    if (store.referees[draggingRefKey]) {
+      syncRefCardSize(newW, newH)
+    } else {
+      const pos = cardPositions[draggingRefKey]
+      if (pos) {
+        pos.w = newW
+        pos.h = newH
+      }
     }
     return
   }
@@ -574,28 +704,33 @@ const changePlayer = async (delta) => {
 
 .settings-panel { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background: #252526; border: 1px solid #444; padding: 15px; border-radius: 8px; z-index: 10001; color: white; width: 280px; box-shadow: 0 5px 20px rgba(0,0,0,0.5); h4 { margin: 0 0 15px 0; text-align: center; color: #ccc; } .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; label { font-size: 0.9rem; color: #aaa; } input[type=range] { width: 100px; } input[type=color] { border: none; width: 40px; height: 25px; padding: 0; background: none; } select { background: #333; color: white; border: 1px solid #555; padding: 2px 5px; border-radius: 4px; width: 140px; } span { width: 40px; text-align: right; font-size: 0.85rem; } } .setting-actions { display: flex; justify-content: space-between; margin-top: 15px; button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; } .btn-reset-style { background: #555; color: white; } .btn-close-settings { background: #3498db; color: white; } } }
 
-.score-card { color: white; border-left: 4px solid #3498db; padding: 10px; cursor: grab; user-select: none; display: flex; flex-direction: column; transition: background-color 0.2s, box-shadow 0.2s; position: relative; &:active { cursor: grabbing; border-color: #2ecc71; } }
+.score-card { --score-font-scale: 1; color: white; border-left: 4px solid #3498db; padding: 10px; cursor: grab; user-select: none; display: flex; flex-direction: column; transition: background-color 0.2s, box-shadow 0.2s; position: relative; &:active { cursor: grabbing; border-color: #2ecc71; } }
 .score-card:not(.waveform-card) { }
 .waveform-card { resize: both; overflow: hidden; min-width: 200px; min-height: 100px; padding: 0; padding-left: 5px; transform: translateZ(0); backface-visibility: hidden; }
 .resize-handle-visual { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; border-right: 3px solid #666; border-bottom: 3px solid #666; pointer-events: none; opacity: 0.6; }
 
 .overlay-header { font-size: 0.85rem; color: #aaa; border-bottom: 1px solid #444; margin-bottom: 5px; padding-bottom: 2px; }
-.score-body { display: flex; align-items: center; justify-content: center; min-height: 40px; width: 100%; flex: 1; overflow: hidden; }
+.score-body { display: flex; align-items: center; justify-content: center; min-height: calc(40px * var(--score-font-scale)); width: 100%; flex: 1; overflow: hidden; }
 
 .score-grid-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%; }
+.score-single-row,
+.score-combined-col,
+.font-scale-target { width: 100%; }
+.font-scale-target { cursor: zoom-in; }
+.font-scale-target.active { cursor: ns-resize; }
 .grid-cell { white-space: nowrap; }
 .left-align { text-align: left; }
 .center-align { text-align: center; }
 .right-align { text-align: right; }
-.fixed-slot { min-height: 32px; display: flex; align-items: center; }
+.fixed-slot { min-height: calc(32px * var(--score-font-scale)); display: flex; align-items: center; }
 .fixed-slot.right-align { justify-content: flex-end; }
 .fixed-slot.left-align { justify-content: flex-start; }
 
-.score-val { font-size: 2rem; font-weight: bold; line-height: 1; &.plus { color: #fff; } &.minus { color: #ff6b6b; } &.total { font-size: 2.5rem; color: #2ecc71; } }
-.score-divider { font-size: 1.5rem; color: #666; margin: 0 5px; font-weight: lighter; }
+.score-val { font-size: calc(2rem * var(--score-font-scale)); font-weight: bold; line-height: 1; &.plus { color: #fff; } &.minus { color: #ff6b6b; } &.total { font-size: calc(2.5rem * var(--score-font-scale)); color: #2ecc71; } }
+.score-divider { font-size: calc(1.5rem * var(--score-font-scale)); color: #666; margin: 0 5px; font-weight: lighter; }
 .score-combined-col { display: flex; flex-direction: column; align-items: center; }
-.combined-total { font-size: 2rem; font-weight: bold; color: #2ecc71; line-height: 1; margin-bottom: 2px; }
-.combined-detail { font-size: 0.9rem; color: #bbb; .mini-plus { color: #ddd; } .mini-minus { color: #ff6b6b; } }
+.combined-total { font-size: calc(2rem * var(--score-font-scale)); font-weight: bold; color: #2ecc71; line-height: 1; margin-bottom: 2px; }
+.combined-detail { font-size: calc(0.9rem * var(--score-font-scale)); color: #bbb; .mini-plus { color: #ddd; } .mini-minus { color: #ff6b6b; } }
 .pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.5); }
 
@@ -637,7 +772,7 @@ const changePlayer = async (delta) => {
 /* 实时模式下需要包含 divider 的容器 */
 .rt-penalty-container {
   display: inline-block;
-  margin-left: 5px;
+  margin-left: calc(5px * var(--score-font-scale));
 }
 
 /* Total 模式下的 Divider */
@@ -649,6 +784,7 @@ const changePlayer = async (delta) => {
 .score-divider-small {
   margin: 0 4px;
   color: #666;
+  font-size: calc(0.9rem * var(--score-font-scale));
   font-weight: lighter;
 }
 </style>

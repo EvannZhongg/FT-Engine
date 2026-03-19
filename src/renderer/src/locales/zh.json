@@ -152,7 +152,7 @@
   "rpt_lbl_sel_players": "选择选手",
   "rpt_lbl_all": "全选",
   "rpt_lbl_fmt": "格式选项",
-  "rpt_opt_txt": "TXT (日志)",
+  "rpt_opt_txt": "CSV (日志)",
   "rpt_opt_srt": "SRT (字幕)",
   "rpt_lbl_srt_mode": "SRT 模式:",
   "rpt_srt_total": "总分",
@@ -173,6 +173,14 @@
 
   "title_device_remarks": "设备备注设置",
   "msg_device_remarks": "为设备设置自定义名称（全局保存）。",
+  "title_device_rename_confirm": "永久修改设备名称",
+  "msg_device_rename_confirm": "以下设备的备注已发生变化。你可以勾选需要永久写入设备蓝牙名称的项目，兼容旧固件时也会继续保留本地备注。",
+  "lbl_rename_to": "写入名称",
+  "btn_skip": "暂不修改",
+  "btn_apply_rename": "写入所选设备",
+  "msg_device_rename_success": "已完成 {count} 个设备的永久重命名。",
+  "msg_device_rename_partial": "永久重命名部分完成：成功 {success} 个，失败 {failed} 个。备注已保存。",
+  "msg_device_rename_fail": "永久重命名失败，备注仍已保存。",
   "ph_add_remark": "添加备注...",
   "msg_no_devices": "暂未发现设备。",
   "btn_save": "保存"
