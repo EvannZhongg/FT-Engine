@@ -1,0 +1,194 @@
+@import './base.css';
+
+/* === 全局背景与布局优化 === */
+body {
+  /* 【关键修改】移除 flex 居中，回归标准文档流，解决偏右和贴边问题 */
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden; /* 禁止此时出现滚动条，由内部容器滚动 */
+  user-select: none;
+
+  /* 深色科技感背景 */
+  background-color: #0a0a0a;
+  background-image:
+    radial-gradient(circle at 15% 50%, rgba(120, 119, 198, 0.15), transparent 40%),
+    radial-gradient(circle at 85% 30%, rgba(67, 56, 202, 0.15), transparent 40%);
+
+  color: #fff;
+}
+
+#app {
+  /* 确保根容器占满全屏，让子组件决定布局 */
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* 【关键修改】移除 align-items: center 和 justify-content: center */
+  /* 之前这里的居中会导致宽屏内容计算错误 */
+}
+
+/* === 全局滚动条美化 === */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* === 代码块样式 === */
+code {
+  font-weight: 600;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    SF Mono,
+    Menlo,
+    Consolas,
+    Liberation Mono,
+    monospace;
+  font-size: 85%;
+  color: #e2e8f0;
+}
+
+/* === 以下保留原模版样式 (为了兼容性) === */
+
+.logo {
+  margin-bottom: 20px;
+  -webkit-user-drag: none;
+  height: 128px;
+  width: 128px;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+.logo:hover {
+  filter: drop-shadow(0 0 1.2em #6988e6aa);
+}
+
+.creator {
+  font-size: 14px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.text {
+  font-size: 28px;
+  color: #fff;
+  font-weight: 700;
+  line-height: 32px;
+  text-align: center;
+  margin: 0 10px;
+  padding: 16px 0;
+}
+
+.tip {
+  font-size: 16px;
+  line-height: 24px;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+}
+
+.vue {
+  background: -webkit-linear-gradient(315deg, #42d392 25%, #647eff);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  padding-top: 32px;
+  margin: -6px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.action {
+  flex-shrink: 0;
+  padding: 6px;
+}
+
+.action a {
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+  border-radius: 20px;
+  padding: 0 20px;
+  line-height: 38px;
+  font-size: 14px;
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s;
+}
+
+.action a:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.versions {
+  position: absolute;
+  bottom: 30px;
+  margin: 0 auto;
+  padding: 15px 0;
+  font-family: 'Menlo', 'Lucida Console', monospace;
+  display: inline-flex;
+  overflow: hidden;
+  align-items: center;
+  border-radius: 22px;
+  background-color: rgba(32, 33, 39, 0.8);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.versions li {
+  display: block;
+  float: left;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0 20px;
+  font-size: 14px;
+  line-height: 14px;
+  opacity: 0.8;
+  color: #fff;
+}
+.versions li:last-child {
+  border: none;
+}
+
+@media (max-width: 720px) {
+  .text {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 620px) {
+  .versions {
+    display: none;
+  }
+}
+
+@media (max-width: 350px) {
+  .tip,
+  .actions {
+    display: none;
+  }
+}

@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+build/
+backend-engine.exe
+backend-engine.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local app data
+app_settings.json
+match_data/
+update.md
+
+# Editor / OS
+.DS_Store
+.idea/
+.codex-tmp/
+
+# Logs and caches
+.eslintcache
+*.log*
