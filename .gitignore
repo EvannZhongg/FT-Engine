@@ -17,6 +17,7 @@ __pycache__/
 app_settings.json
 match_data/
 update.md
+esp32.c
 
 # Editor / OS
 .DS_Store
