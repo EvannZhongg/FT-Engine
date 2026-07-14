@@ -27,3 +27,5 @@ esp32.c
 # Logs and caches
 .eslintcache
 *.log*
+
+esp32.c
