@@ -18,6 +18,7 @@ import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
 import { LocalDatabase } from './persistence/local-database.mts'
+import { importLegacyProjects } from './persistence/legacy-importer.mts'
 import { parseLegacyShadowEventLine } from './legacy/shadow-event.mts'
 
 const { spawn, execSync } = require('child_process')
@@ -203,8 +204,23 @@ function openLocalDatabase() {
   )
   database.open()
   localDatabase = database
+  let imported
+  try {
+    imported = importLegacyProjects(database, join(dataRoot, 'match_data'))
+  } catch (error) {
+    closeLocalDatabase()
+    throw error
+  }
   console.log('[Electron] Local database ready:', database.databasePath)
+  console.log(
+    `[Electron] Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
+    `events=${imported.events}, errors=${imported.errors.length}`
+  )
   logToFile(`Local database ready: ${database.databasePath}`)
+  logToFile(
+    `Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
+    `events=${imported.events}, errors=${imported.errors.length}`
+  )
 }
 
 function closeLocalDatabase() {
