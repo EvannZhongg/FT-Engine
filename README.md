@@ -85,6 +85,7 @@ Typical packaged locations are `%APPDATA%/FT Engine/` on Windows and `~/Library/
 src/main/application/            Competition, export, match, and settings services
 src/main/domain/                 TypeScript scoring domain
 src/main/persistence/            SQLite repository and query projections
+src/main/ipc/                    Domain-specific validated IPC registration
 src/main/worker/                 WorkerClient
 src/preload/                     Narrow main/overlay APIs
 src/shared/                      IPC and domain DTO contracts

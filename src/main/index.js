@@ -12,6 +12,11 @@ import { DeviceLifecycle } from './match/device-lifecycle.mjs'
 import { MatchSessionService } from './match/match-session.mts'
 import { CompetitionService } from './application/competitions/competition-service.mts'
 import { ExportService, ExportServiceError } from './application/exports/export-service.mts'
+import { registerCompetitionIpc } from './ipc/register-competitions.mts'
+import { registerExportIpc } from './ipc/register-exports.mts'
+import { registerMatchIpc } from './ipc/register-matches.mts'
+import { registerQueryIpc } from './ipc/register-queries.mts'
+import { registerSettingsIpc } from './ipc/register-settings.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 
 let platformWorker = null
@@ -555,130 +560,15 @@ app.whenReady().then(async () => {
     )
   })
 
-  ipcMain.handle(IPC_CHANNELS.settings.get, (event) => {
-    assertMainSender(event)
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.getAppSettings()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.settings.set, (event, key, value) => {
-    assertMainSender(event)
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.setAppSetting(key, value)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.start, async (event, input) => {
-    assertMainSender(event)
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    const sourceKey = input?.sourceKey
-    const config = typeof sourceKey === 'string' ? competitionService.get(sourceKey) : null
-    if (!config) throw new Error('MATCH_PROJECT_NOT_FOUND')
-    return matchSession.start(input)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.setContext, async (event, groupName, contestantName) => {
-    assertMainSender(event)
-    return matchSession.setContext(groupName, contestantName)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.getStatus, (event) => {
-    assertMainSender(event)
-    return matchSession.getStatus()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.syncPlayback, (event, playback) => {
-    assertMainSender(event)
-    if (!playback || typeof playback !== 'object' || Array.isArray(playback)) {
-      throw new Error('IPC_INVALID_MATCH_PLAYBACK')
-    }
-    matchSession.updatePlayback(playback)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.setMediaBinding, (event, groupName, contestantName, url) => {
-    assertMainSender(event)
-    return matchSession.setMediaBinding(groupName, contestantName, url)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.listScored, (event, sourceKey, groupName) => {
-    assertMainSender(event)
-    if (
-      typeof sourceKey !== 'string' ||
-      !sourceKey ||
-      sourceKey.length > 256 ||
-      typeof groupName !== 'string' ||
-      !groupName ||
-      groupName.length > 256
-    ) {
-      throw new Error('IPC_INVALID_MATCH_CONTEXT')
-    }
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.listScoredContestants(sourceKey, groupName)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.reset, async (event) => {
-    assertMainSender(event)
-    return matchSession.reset()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.match.stop, async (event) => {
-    assertMainSender(event)
-    return stopDeviceSessions('score-page-exit')
-  })
-
-  ipcMain.handle(IPC_CHANNELS.replay.get, (event, sourceKey, groupName, contestantName) => {
-    assertMainSender(event)
-    for (const value of [sourceKey, groupName, contestantName]) {
-      if (typeof value !== 'string' || !value || value.length > 256) {
-        throw new Error('IPC_INVALID_REPLAY_CONTEXT')
-      }
-    }
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.getReplay(sourceKey, groupName, contestantName)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.reports.get, (event, sourceKey) => {
-    assertMainSender(event)
-    if (typeof sourceKey !== 'string' || !sourceKey || sourceKey.length > 256) {
-      throw new Error('IPC_INVALID_REPORT_CONTEXT')
-    }
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.getReport(sourceKey)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.projects.create, (event, projectName, mode) => {
-    assertMainSender(event)
-    return competitionService.create(projectName, mode)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.projects.update, (event, sourceKey, input) => {
-    assertMainSender(event)
-    return competitionService.update(sourceKey, input)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.projects.get, (event, sourceKey) => {
-    assertMainSender(event)
-    return competitionService.get(sourceKey)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.projects.list, (event) => {
-    assertMainSender(event)
-    return competitionService.list()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.projects.delete, (event, sourceKey) => {
-    assertMainSender(event)
-    return competitionService.delete(sourceKey)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.exports.saveDetails, (event, request) => {
-    assertMainSender(event)
-    return saveExportArtifact(() => exportService.buildDetails(request))
-  })
-
-  ipcMain.handle(IPC_CHANNELS.exports.saveReport, (event, request) => {
-    assertMainSender(event)
-    return saveExportArtifact(() => exportService.buildReport(request))
-  })
+  const ipcContext = {
+    assertMainSender,
+    getDatabase: () => localDatabase
+  }
+  registerSettingsIpc(ipcContext)
+  registerCompetitionIpc(ipcContext, competitionService)
+  registerMatchIpc(ipcContext, competitionService, matchSession, stopDeviceSessions)
+  registerQueryIpc(ipcContext)
+  registerExportIpc(ipcContext, exportService, saveExportArtifact)
 
   ipcMain.handle(IPC_CHANNELS.app.deleteLocalData, async (event) => {
     assertMainSender(event)

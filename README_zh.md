@@ -98,6 +98,7 @@ src/main/
   application/        Competition、Export、Match、Settings 等应用服务
   domain/             TypeScript 计分领域
   persistence/        SQLite Repository 与查询投影
+  ipc/                分域输入校验与 IPC 注册
   worker/             WorkerClient
 src/preload/          主窗口与 Overlay 的窄化 API
 src/shared/           IPC 与领域 DTO 契约
