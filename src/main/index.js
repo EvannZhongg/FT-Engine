@@ -1,4 +1,4 @@
-import { app, shell, dialog, ipcMain, globalShortcut } from 'electron'
+import { app, shell, dialog, globalShortcut } from 'electron'
 import { basename, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
@@ -21,8 +21,12 @@ import { registerWindowIpc } from './ipc/register-windows.mts'
 import { registerOverlayIpc } from './ipc/register-overlay.mts'
 import { registerPlatformIpc } from './ipc/register-platform.mts'
 import { registerDeviceIpc } from './ipc/register-devices.mts'
+import { registerShortcutIpc } from './ipc/register-shortcuts.mts'
+import { registerAppIpc } from './ipc/register-app.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 import { DesktopWindowManager } from './app/windows.mts'
+import { registerAppLifecycle } from './app/lifecycle.mts'
+import { registerUpdateNotifications } from './app/updates.mts'
 import { PlatformWorkerManager } from './infrastructure/platform-worker/platform-worker-manager.mjs'
 
 let localDatabase = null
@@ -251,6 +255,16 @@ windowManager = new DesktopWindowManager({
   checkForUpdates: () => autoUpdater.checkForUpdatesAndNotify()
 })
 
+registerAppLifecycle(app, {
+  isMac,
+  hasMainWindow: () => Boolean(windowManager.getMainWindow()),
+  createMainWindow: () => windowManager.createMainWindow(),
+  unregisterShortcuts: () => globalShortcut.unregisterAll(),
+  closeDatabase: closeLocalDatabase,
+  terminateWorker: () => platformWorkerManager.terminate(),
+  stopWorker: () => platformWorkerManager.stop()
+})
+
 async function saveExportArtifact(buildArtifact) {
   try {
     const artifact = buildArtifact()
@@ -306,68 +320,7 @@ app.whenReady().then(async () => {
   windowManager.createMainWindow()
   logToFile('Main window created')
 
-  autoUpdater.on('update-available', () => {
-    windowManager.sendToMain(IPC_CHANNELS.app.updateAvailable)
-  })
-
-  autoUpdater.on('update-downloaded', () => {
-    windowManager.sendToMain(IPC_CHANNELS.app.updateDownloaded)
-  })
-
-  ipcMain.on(IPC_CHANNELS.app.restartForUpdate, async (event) => {
-    if (
-      windowManager.rejectUnexpectedSender(
-        event,
-        windowManager.getMainWindow(),
-        IPC_CHANNELS.app.restartForUpdate
-      )
-    ) {
-      return
-    }
-    await stopDeviceSessions('restart-for-update')
-    await platformWorkerManager.stop()
-    closeLocalDatabase()
-    autoUpdater.quitAndInstall()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.shortcuts.register, (event, shortcut) => {
-    windowManager.assertMainSender(event)
-    globalShortcut.unregisterAll()
-
-    if (typeof shortcut !== 'string' || shortcut.length < 1 || shortcut.length > 64) {
-      return { ok: false, error: 'SHORTCUT_INVALID' }
-    }
-
-    try {
-      const registered = globalShortcut.register(shortcut, () => {
-        console.log('[Electron] Global shortcut triggered:', shortcut)
-        windowManager.sendToMain(IPC_CHANNELS.shortcuts.triggered)
-      })
-
-      if (!registered) {
-        console.log('[Electron] Global shortcut registration failed')
-        return { ok: false, error: 'SHORTCUT_UNAVAILABLE' }
-      }
-      return { ok: true }
-    } catch (error) {
-      console.error('[Electron] Error registering shortcut:', error)
-      return { ok: false, error: 'SHORTCUT_INVALID' }
-    }
-  })
-
-  ipcMain.on(IPC_CHANNELS.shortcuts.unregister, (event) => {
-    if (
-      windowManager.rejectUnexpectedSender(
-        event,
-        windowManager.getMainWindow(),
-        IPC_CHANNELS.shortcuts.unregister
-      )
-    ) {
-      return
-    }
-    globalShortcut.unregisterAll()
-    console.log('[Electron] Global shortcuts unregistered')
-  })
+  registerUpdateNotifications(autoUpdater, windowManager)
 
   const ipcContext = {
     assertMainSender: (event) => windowManager.assertMainSender(event),
@@ -382,37 +335,18 @@ app.whenReady().then(async () => {
   registerOverlayIpc(windowManager, () => matchSession.getStatus())
   registerPlatformIpc(ipcContext, platformWorkerManager)
   registerDeviceIpc(ipcContext, platformWorkerManager)
-
-  ipcMain.handle(IPC_CHANNELS.app.deleteLocalData, async (event) => {
-    windowManager.assertMainSender(event)
-    const result = await deleteLocalDataFiles()
-    if (result.failed.length > 0) {
-      return { ok: false, ...result }
-    }
-
-    setTimeout(() => {
+  registerShortcutIpc(windowManager, globalShortcut)
+  registerAppIpc(windowManager, {
+    deleteLocalData: deleteLocalDataFiles,
+    restartForUpdate: async () => {
+      await stopDeviceSessions('restart-for-update')
+      await platformWorkerManager.stop()
+      closeLocalDatabase()
+      autoUpdater.quitAndInstall()
+    },
+    relaunch: () => {
       app.relaunch()
       app.exit(0)
-    }, 150)
-
-    return { ok: true, ...result }
+    }
   })
-
-  app.on('activate', function () {
-    if (!windowManager.getMainWindow()) windowManager.createMainWindow()
-  })
-})
-
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
-  closeLocalDatabase()
-  platformWorkerManager.terminate()
-})
-
-app.on('window-all-closed', async () => {
-  if (!isMac) {
-    await platformWorkerManager.stop()
-    closeLocalDatabase()
-    app.quit()
-  }
 })

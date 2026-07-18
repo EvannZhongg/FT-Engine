@@ -113,3 +113,29 @@ test('keeps Platform Worker lifecycle and device IPC out of the Main composition
   assert.equal(platformIpc.includes('IPC_INVALID_WINDOW_ID'), true)
   assert.equal(deviceIpc.includes('IPC_INVALID_DEVICE_REMARKS'), true)
 })
+
+test('keeps application lifecycle and command IPC out of the Main composition root', () => {
+  const main = source('src/main/index.js')
+  const lifecycle = source('src/main/app/lifecycle.mts')
+  const updates = source('src/main/app/updates.mts')
+  const appIpc = source('src/main/ipc/register-app.mts')
+  const shortcutIpc = source('src/main/ipc/register-shortcuts.mts')
+
+  for (const implementation of [
+    "app.on('activate'",
+    "app.on('will-quit'",
+    "app.on('window-all-closed'",
+    'ipcMain.on(IPC_CHANNELS.app',
+    'ipcMain.handle(IPC_CHANNELS.shortcuts'
+  ]) {
+    assert.equal(main.includes(implementation), false, implementation)
+  }
+  assert.equal(main.includes('registerAppLifecycle(app'), true)
+  assert.equal(main.includes('registerUpdateNotifications(autoUpdater, windowManager)'), true)
+  assert.equal(main.includes('registerAppIpc(windowManager'), true)
+  assert.equal(main.includes('registerShortcutIpc(windowManager, globalShortcut)'), true)
+  assert.equal(lifecycle.includes("app.on('will-quit'"), true)
+  assert.equal(updates.includes('IPC_CHANNELS.app.updateDownloaded'), true)
+  assert.equal(appIpc.includes('IPC_CHANNELS.app.deleteLocalData'), true)
+  assert.equal(shortcutIpc.includes('IPC_CHANNELS.shortcuts.register'), true)
+})

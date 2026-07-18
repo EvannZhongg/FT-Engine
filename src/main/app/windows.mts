@@ -1,4 +1,10 @@
-import { BrowserWindow, screen, type App, type IpcMainEvent } from 'electron'
+import {
+  BrowserWindow,
+  screen,
+  type App,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent
+} from 'electron'
 import { join } from 'node:path'
 import { IPC_CHANNELS } from '../../shared/ipc-contract.ts'
 import { normalizeOverlayOptions } from '../security.mjs'
@@ -226,16 +232,16 @@ export class DesktopWindowManager {
     BrowserWindow.fromWebContents(event.sender)?.close()
   }
 
-  isSender(event: IpcMainEvent, window: BrowserWindow | null): boolean {
+  isSender(event: IpcMainEvent | IpcMainInvokeEvent, window: BrowserWindow | null): boolean {
     return Boolean(window && !window.isDestroyed() && event.sender === window.webContents)
   }
 
-  assertMainSender(event: IpcMainEvent): void {
+  assertMainSender(event: IpcMainEvent | IpcMainInvokeEvent): void {
     if (!this.isSender(event, this.mainWindow)) throw new Error('IPC_UNAUTHORIZED')
   }
 
   rejectUnexpectedSender(
-    event: IpcMainEvent,
+    event: IpcMainEvent | IpcMainInvokeEvent,
     window: BrowserWindow | null,
     channel: string
   ): boolean {
