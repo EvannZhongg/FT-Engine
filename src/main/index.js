@@ -18,6 +18,7 @@ import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
 import { LocalDatabase } from './persistence/local-database.mts'
+import { parseLegacyShadowEventLine } from './legacy/shadow-event.mts'
 
 const { spawn, execSync } = require('child_process')
 const net = require('net')
@@ -36,6 +37,7 @@ const MAX_PLATFORM_WORKER_RESTARTS = 3
 
 let startupLogStream = null
 let startupT0 = 0
+let backendStdoutBuffer = ''
 
 function closeStartupLog() {
   if (!startupLogStream) return
@@ -108,15 +110,11 @@ const createPyProc = () => {
   pyProc = spawn(cmd, args, { env: getBackendEnv(app) })
 
   if (pyProc != null) {
+    backendStdoutBuffer = ''
     console.log('[Electron] Python process started, PID:', pyProc.pid)
     logToFile('Backend process spawned, PID: ' + pyProc.pid)
     pyProc.stdout.on('data', function (data) {
-      const line = data.toString()
-      console.log('py_stdout: ' + line)
-      const trimmed = line.trim()
-      if (trimmed) {
-        logToFile('[backend] ' + trimmed.replace(/\n/g, ' | '))
-      }
+      processBackendStdout(data.toString())
     })
     pyProc.stderr.on('data', function (data) {
       const line = data.toString()
@@ -168,6 +166,32 @@ const exitPyProc = () => {
     }
 
     pyProc = null
+  }
+}
+
+function processBackendStdout(chunk) {
+  backendStdoutBuffer += chunk
+  if (Buffer.byteLength(backendStdoutBuffer, 'utf8') > 1024 * 1024) {
+    backendStdoutBuffer = ''
+    console.error('[Electron] Discarded oversized backend stdout line')
+    return
+  }
+  let newlineIndex = backendStdoutBuffer.indexOf('\n')
+  while (newlineIndex >= 0) {
+    const line = backendStdoutBuffer.slice(0, newlineIndex).replace(/\r$/, '')
+    backendStdoutBuffer = backendStdoutBuffer.slice(newlineIndex + 1)
+    try {
+      const event = parseLegacyShadowEventLine(line)
+      if (event) {
+        if (localDatabase) localDatabase.appendScoreEvent(event)
+      } else if (line.trim()) {
+        console.log('py_stdout: ' + line)
+        logToFile('[backend] ' + line.trim())
+      }
+    } catch (error) {
+      console.error('[Electron] Failed to shadow-write legacy score event:', error.message)
+    }
+    newlineIndex = backendStdoutBuffer.indexOf('\n')
   }
 }
 

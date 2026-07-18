@@ -2,6 +2,7 @@ import asyncio
 import time
 import threading
 import uuid
+from dataclasses import asdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi.responses import StreamingResponse
@@ -46,6 +47,8 @@ STANDARD_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 
 DEVICE_NAME_PREFIX = "Counter-"
 DEBUG_SCORE_LATENCY = os.environ.get("DEBUG_SCORE_LATENCY", "").strip() == "1"
+EMIT_SHADOW_EVENTS = os.environ.get("FT_ENGINE_SHADOW_EVENTS", "").strip() == "1"
+SHADOW_EVENT_PREFIX = "FT_SHADOW_EVENT "
 ESPRESSIF_USB_VID = 0x303A
 SERIAL_SCAN_TIMEOUT = 0.35
 
@@ -799,6 +802,11 @@ class HeadlessReferee:
   def _schedule_record_log(self, snapshot):
     if snapshot is None:
       return
+    if EMIT_SHADOW_EVENTS:
+      print(
+        SHADOW_EVENT_PREFIX + json.dumps(asdict(snapshot), ensure_ascii=True, separators=(",", ":")),
+        flush=True,
+      )
     if _main_loop is None:
       storage_manager.log_event(snapshot)
       return

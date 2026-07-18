@@ -95,6 +95,7 @@ export function getBackendEnv(app) {
     FT_ENGINE_PLATFORM: process.platform,
     FT_ENGINE_CONFIG_PATH: getConfigPath(app),
     FT_ENGINE_DATA_ROOT: dataRoot,
+    FT_ENGINE_SHADOW_EVENTS: '1',
     FT_ENGINE_BLE_HEARTBEAT: isMac ? 'off' : 'auto'
   }
 }
