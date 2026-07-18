@@ -14,6 +14,10 @@ export class PlatformWorkerManager {
   #restartTimer = null
   #restartCount = 0
   #stopping = false
+  #ready = false
+  #lastHello = null
+  #startPromise = null
+  #manualRetryPromise = null
 
   constructor({
     createClient,
@@ -39,7 +43,20 @@ export class PlatformWorkerManager {
 
   async start() {
     this.#stopping = false
-    return this.#createAndStart()
+    return this.#ensureStarted()
+  }
+
+  retry() {
+    if (this.#manualRetryPromise) return this.#manualRetryPromise
+
+    this.#stopping = false
+    this.#clearRestartTimer()
+    this.#restartCount = 0
+    const pending = this.#retryNow().finally(() => {
+      if (this.#manualRetryPromise === pending) this.#manualRetryPromise = null
+    })
+    this.#manualRetryPromise = pending
+    return pending
   }
 
   request(method, params = {}, timeoutMs) {
@@ -76,6 +93,8 @@ export class PlatformWorkerManager {
     this.#clearRestartTimer()
     const worker = this.#worker
     this.#worker = null
+    this.#ready = false
+    this.#lastHello = null
     if (worker) await worker.stop(graceMs)
   }
 
@@ -84,7 +103,39 @@ export class PlatformWorkerManager {
     this.#clearRestartTimer()
     const worker = this.#worker
     this.#worker = null
+    this.#ready = false
+    this.#lastHello = null
     worker?.terminate()
+  }
+
+  async #retryNow() {
+    if (this.#ready) {
+      try {
+        if (this.#isSessionActive()) await this.#reconnectSession()
+        return { status: 'already_ready' }
+      } catch (error) {
+        this.#log('error', `Platform Worker device retry failed: ${errorMessage(error)}`)
+        throw error
+      }
+    }
+    try {
+      const hello = await this.#ensureStarted()
+      return { status: 'ready', hello }
+    } catch (error) {
+      this.#log('error', `Platform Worker manual retry failed: ${errorMessage(error)}`)
+      this.scheduleRestart()
+      throw error
+    }
+  }
+
+  #ensureStarted() {
+    if (this.#ready) return Promise.resolve(this.#lastHello)
+    if (this.#startPromise) return this.#startPromise
+    const pending = this.#createAndStart().finally(() => {
+      if (this.#startPromise === pending) this.#startPromise = null
+    })
+    this.#startPromise = pending
+    return pending
   }
 
   async #createAndStart() {
@@ -102,6 +153,8 @@ export class PlatformWorkerManager {
       this.#log('warn', `Platform Worker exited (code=${code}, signal=${signal})`)
       if (this.#worker !== worker) return
       this.#worker = null
+      this.#ready = false
+      this.#lastHello = null
       if (!this.#stopping) this.#onUnavailable()
       this.scheduleRestart()
     })
@@ -111,8 +164,12 @@ export class PlatformWorkerManager {
       const hello = await worker.request('system.hello')
       this.#log('info', `Platform Worker ready: ${JSON.stringify(hello)}`)
       if (this.#isSessionActive()) await this.#reconnectSession()
+      this.#ready = true
+      this.#lastHello = hello
       return hello
     } catch (error) {
+      this.#ready = false
+      this.#lastHello = null
       worker.terminate()
       if (this.#worker === worker) this.#worker = null
       throw error

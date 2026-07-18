@@ -85,6 +85,17 @@
         <Cpu :size="14" />
         {{ $t(`match_worker_${store.matchStatus.worker}`) }}
       </span>
+      <button
+        v-if="store.matchStatus.worker === 'error'"
+        class="health-retry"
+        type="button"
+        :disabled="isRetryingWorker"
+        :title="$t(isRetryingWorker ? 'status_retrying_worker' : 'btn_retry_worker')"
+        :aria-label="$t(isRetryingWorker ? 'status_retrying_worker' : 'btn_retry_worker')"
+        @click="retryPlatformWorker"
+      >
+        <RotateCcw :size="14" :class="{ spinning: isRetryingWorker }" />
+      </button>
       <span class="health-item" :class="store.matchStatus.media">
         <Video :size="14" />
         {{ $t(`match_media_${store.matchStatus.media}`) }}
@@ -304,6 +315,19 @@ const savingMedia = ref(false)
 const mediaError = ref('')
 const mediaSaved = ref(false)
 const isContextChanging = ref(false)
+const isRetryingWorker = ref(false)
+
+const retryPlatformWorker = async () => {
+  if (isRetryingWorker.value) return
+  isRetryingWorker.value = true
+  try {
+    await store.retryPlatformWorker()
+  } catch (error) {
+    console.error('Platform Worker retry failed:', error)
+  } finally {
+    isRetryingWorker.value = false
+  }
+}
 
 const currentBinding = computed(() => {
   const group = store.currentContext.groupName
@@ -641,11 +665,15 @@ const confirmOverlay = async () => {
 .match-context-label { min-width: 120px; max-width: 220px; padding-right: 15px; border-right: 1px solid #444; overflow: hidden; }
 .stage-attempt-label { display: flex; align-items: center; gap: 5px; color: #8fb9d4; font-size: 0.72rem; white-space: nowrap; overflow: hidden; span { overflow: hidden; text-overflow: ellipsis; } .context-separator { flex: 0 0 auto; color: #666; } }
 .group-label { margin-top: 3px; color: #aaa; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.match-health-bar { min-height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid #34363a; background: #202124; color: #aeb2b8; font-size: 0.75rem; }
+.match-health-bar { min-height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid #34363a; background: #202124; color: #aeb2b8; font-size: 0.75rem; overflow-x: auto; }
 .health-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: #9ea3aa; }
 .health-item.saved, .health-item.ready, .health-item.aligned { color: #6fc596; }
 .health-item.saving, .health-item.reconnecting, .health-item.stale, .health-item.context_mismatch, .health-item.not_ready { color: #d8b667; }
 .health-item.error { color: #ef8888; }
+.health-retry { width: 26px; height: 26px; flex: 0 0 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #784949; border-radius: 4px; background: #342527; color: #ef9a9a; cursor: pointer; }
+.health-retry:hover:not(:disabled) { border-color: #b25d5d; background: #472c2f; color: white; }
+.health-retry:disabled { opacity: 0.6; cursor: wait; }
+.health-retry .spinning { animation: worker-spin 0.8s linear infinite; }
 .health-error { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef8888; font-size: 0.7rem; }
 .btn-tool { height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: #2b2b2b; color: #eee; font-size: 0.9rem; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.2s ease; &:hover { background: #383838; border-color: #555; } &:active { transform: translateY(1px); } }
 .btn-tool:disabled, .nav-arrow:disabled, .player-select:disabled { opacity: 0.5; cursor: wait; }
@@ -683,6 +711,7 @@ const confirmOverlay = async () => {
 .media-saved { color: #45c486; font-size: 0.75rem; }
 .media-error { grid-column: 1 / -1; color: #ff8b8b; font-size: 0.76rem; }
 .modal-actions { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
+@keyframes worker-spin { to { transform: rotate(360deg); } }
 .vertical-actions { flex-direction: column; }
 .btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
 .btn-confirm:disabled { opacity: 0.45; cursor: default; }

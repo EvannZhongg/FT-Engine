@@ -23,7 +23,8 @@ const IPC_CHANNELS = {
   },
   platform: {
     listWindows: 'platform:list-windows',
-    getWindowBounds: 'platform:get-window-bounds'
+    getWindowBounds: 'platform:get-window-bounds',
+    retryWorker: 'platform:retry-worker'
   },
   devices: {
     scan: 'devices:scan',
@@ -110,7 +111,8 @@ const ftEngine = {
   platform: {
     listWindows: () => ipcRenderer.invoke(IPC_CHANNELS.platform.listWindows),
     getWindowBounds: (windowId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.platform.getWindowBounds, windowId)
+      ipcRenderer.invoke(IPC_CHANNELS.platform.getWindowBounds, windowId),
+    retryWorker: () => ipcRenderer.invoke(IPC_CHANNELS.platform.retryWorker)
   },
   devices: {
     scan: (options) => ipcRenderer.invoke(IPC_CHANNELS.devices.scan, options),

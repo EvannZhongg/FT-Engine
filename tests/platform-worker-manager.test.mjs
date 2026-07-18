@@ -39,6 +39,7 @@ function createFixture(options = {}) {
   const manager = new PlatformWorkerManager({
     createClient: () => {
       const worker = new FakeWorker()
+      options.configureWorker?.(worker, workers.length)
       workers.push(worker)
       return worker
     },
@@ -76,6 +77,10 @@ test('starts, handshakes and reconnects an active match session', async () => {
   assert.deepEqual(await fixture.manager.start(), { protocolVersion: 1 })
   assert.equal(fixture.workers[0].started, true)
   assert.equal(fixture.reconnected(), 1)
+
+  assert.deepEqual(await fixture.manager.retry(), { status: 'already_ready' })
+  assert.equal(fixture.workers.length, 1)
+  assert.equal(fixture.reconnected(), 2)
 
   fixture.workers[0].emit('event', { event: 'device.counter' })
   assert.deepEqual(fixture.events, [{ event: 'device.counter' }])
@@ -132,4 +137,69 @@ test('stops without scheduling a replacement worker', async () => {
   assert.equal(fixture.unavailable(), 0)
   assert.equal(fixture.timers.length, 0)
   assert.throws(() => fixture.manager.request('system.hello'), /WORKER_NOT_RUNNING/)
+})
+
+test('manual retry resets an exhausted automatic restart budget', async () => {
+  const fixture = createFixture()
+  await fixture.manager.start()
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    fixture.workers[attempt].emit('exit', { code: 1, signal: null })
+    await fixture.timers[attempt].callback()
+  }
+  fixture.workers[3].emit('exit', { code: 1, signal: null })
+  assert.equal(fixture.timers.length, 3)
+
+  assert.deepEqual(await fixture.manager.retry(), {
+    status: 'ready',
+    hello: { protocolVersion: 1 }
+  })
+  assert.equal(fixture.workers.length, 5)
+
+  fixture.workers[4].emit('exit', { code: 1, signal: null })
+  assert.equal(fixture.timers.length, 4)
+  assert.equal(fixture.timers[3].delayMs, 1000)
+})
+
+test('coalesces manual retries and cancels a pending automatic restart', async () => {
+  let releaseStart
+  const startPending = new Promise((resolve) => {
+    releaseStart = resolve
+  })
+  const fixture = createFixture({
+    configureWorker: (worker, index) => {
+      if (index === 1) worker.start = async () => startPending
+    }
+  })
+  await fixture.manager.start()
+  fixture.workers[0].emit('exit', { code: 1, signal: null })
+
+  const first = fixture.manager.retry()
+  const second = fixture.manager.retry()
+
+  assert.equal(first, second)
+  assert.equal(fixture.timers[0].cancelled, true)
+  releaseStart()
+  await first
+  assert.equal(fixture.workers.length, 2)
+})
+
+test('starts a fresh automatic budget when manual recovery fails', async () => {
+  const fixture = createFixture({
+    configureWorker: (worker) => {
+      worker.start = async () => {
+        const error = new Error('worker start failed')
+        error.code = 'WORKER_START_FAILED'
+        throw error
+      }
+    }
+  })
+
+  await assert.rejects(fixture.manager.start(), { code: 'WORKER_START_FAILED' })
+  await assert.rejects(fixture.manager.retry(), { code: 'WORKER_START_FAILED' })
+  assert.equal(fixture.timers.length, 1)
+  assert.equal(fixture.timers[0].delayMs, 1000)
+  assert.equal(
+    fixture.logs.some((entry) => entry.message.includes('manual retry failed')),
+    true
+  )
 })

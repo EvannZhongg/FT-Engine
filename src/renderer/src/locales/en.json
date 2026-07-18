@@ -118,6 +118,11 @@
   "status_error": "Error",
   "msg_timeout": "Connection timeout.",
   "msg_bt_off": "Bluetooth is powered off or unavailable.",
+  "msg_scan_failed": "Device scan failed: {message}",
+  "msg_worker_unavailable": "The device service is unavailable. Retry the service.",
+  "msg_worker_retry_failed": "The device service could not restart. Check the logs and try again.",
+  "btn_retry_worker": "Retry Device Service",
+  "status_retrying_worker": "Restarting Device Service",
   "btn_force": "Enter Anyway",
 
   "sb_btn_stop": "Stop",

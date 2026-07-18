@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 let finalizeMatchPromise = null
+let platformWorkerRetryPromise = null
 let removeMatchRefereeListener = () => {}
 let removeMatchContextListener = () => {}
 let removeMatchStatusListener = () => {}
@@ -323,6 +324,24 @@ export const useRefereeStore = defineStore('referee', {
         console.error('Scan failed:', e)
         throw e
       }
+    },
+
+    retryPlatformWorker() {
+      if (platformWorkerRetryPromise) return platformWorkerRetryPromise
+      const pending = (async () => {
+        if (!window.ftEngine?.platform) throw new Error('LOCAL_PLATFORM_UNAVAILABLE')
+        const result = await window.ftEngine.platform.retryWorker()
+        if (!result?.ok) {
+          const error = new Error(result?.error || 'WORKER_RETRY_FAILED')
+          error.code = result?.error || 'WORKER_RETRY_FAILED'
+          throw error
+        }
+        return result
+      })().finally(() => {
+        if (platformWorkerRetryPromise === pending) platformWorkerRetryPromise = null
+      })
+      platformWorkerRetryPromise = pending
+      return pending
     },
 
     // 启动比赛：发送设备绑定信息

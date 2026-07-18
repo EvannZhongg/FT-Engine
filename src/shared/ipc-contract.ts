@@ -32,7 +32,8 @@ export const IPC_CHANNELS = {
   },
   platform: {
     listWindows: 'platform:list-windows',
-    getWindowBounds: 'platform:get-window-bounds'
+    getWindowBounds: 'platform:get-window-bounds',
+    retryWorker: 'platform:retry-worker'
   },
   devices: {
     scan: 'devices:scan',
@@ -125,6 +126,10 @@ export interface WindowBoundsResult {
   found: boolean
   bounds: OverlayBounds | null
 }
+
+export type PlatformWorkerRetryResult =
+  | { ok: true; status: 'ready' | 'already_ready' }
+  | { ok: false; status: 'error'; error: string }
 
 export interface LocalDevice {
   name: string
@@ -293,6 +298,7 @@ export interface FtEngineApi {
   platform: {
     listWindows: () => Promise<WindowListResult>
     getWindowBounds: (windowId: string) => Promise<WindowBoundsResult>
+    retryWorker: () => Promise<PlatformWorkerRetryResult>
   }
   devices: {
     scan: (options: {

@@ -126,11 +126,22 @@
           <span v-if="isScanning" class="status scanning">{{ $t('status_scanning') }}</span>
           <span v-else class="status">{{ $t('status_found', { count: scannedDevices.length }) }}</span>
 
-          <button class="btn-alias" @click="openAliasModal" :disabled="isScanning" :title="$t('title_device_remarks')">
+          <button
+            v-if="workerRetryAvailable"
+            class="btn-worker-retry"
+            type="button"
+            :disabled="isScanning || isRetryingWorker"
+            @click="retryPlatformWorker"
+          >
+            <RotateCcw :size="15" :class="{ spinning: isRetryingWorker }" />
+            <span>{{ $t(isRetryingWorker ? 'status_retrying_worker' : 'btn_retry_worker') }}</span>
+          </button>
+
+          <button class="btn-alias" @click="openAliasModal" :disabled="isScanning || isRetryingWorker" :title="$t('title_device_remarks')">
             <Tag :size="16" />
           </button>
 
-          <button class="btn-scan" @click="startScan(true)" :disabled="isScanning">{{ $t('btn_scan') }}</button>
+          <button class="btn-scan" @click="startScan(true)" :disabled="isScanning || isRetryingWorker">{{ $t('btn_scan') }}</button>
         </div>
       </div>
 
@@ -308,7 +319,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRefereeStore } from '../stores/refereeStore'
-import { Check, ChevronDown, ChevronUp, Plus, Tag, Trash2, Upload } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronUp, Plus, RotateCcw, Tag, Trash2, Upload } from 'lucide-vue-next'
 import { read, utils } from 'xlsx'
 import { useI18n } from 'vue-i18n'
 import { clampAttempt, createGroupDraft, toStageDraft, toStageInput } from '../features/competitions/stageDrafts.mjs'
@@ -318,6 +329,8 @@ const emit = defineEmits(['cancel', 'finished'])
 const store = useRefereeStore()
 const currentStep = ref(1)
 const isScanning = ref(false)
+const isRetryingWorker = ref(false)
+const workerRetryAvailable = ref(false)
 const scannedDevices = ref([])
 const form = reactive({ projectName: 'New Match', mode: 'FREE' })
 const stageDrafts = ref([])
@@ -555,20 +568,45 @@ const refreshBindingSlots = () => {
 }
 
 const startScan = async (isRefresh = true) => {
+  if (isScanning.value) return false
   isScanning.value = true
+  setupError.value = ''
   try {
     const allDevices = await store.scanDevices(isRefresh)
     scannedDevices.value = allDevices
+    workerRetryAvailable.value = false
+    return true
   } catch (e) {
     console.error("Scan error", e)
-    const msg = e.message || ''
+    const msg = e instanceof Error ? e.message : String(e)
+    workerRetryAvailable.value = msg.includes('WORKER_')
     if (msg.includes('Bluetooth') || msg.includes('powered off')) {
-        alert(t('msg_bt_off') || "Bluetooth off.")
+      setupError.value = t('msg_bt_off')
+    } else if (workerRetryAvailable.value) {
+      setupError.value = t('msg_worker_unavailable')
     } else {
-        alert("Scan failed: " + msg)
+      setupError.value = t('msg_scan_failed', { message: msg })
     }
+    return false
   }
   finally { isScanning.value = false }
+}
+
+const retryPlatformWorker = async () => {
+  if (isRetryingWorker.value) return
+  isRetryingWorker.value = true
+  setupError.value = ''
+  try {
+    await store.retryPlatformWorker()
+    workerRetryAvailable.value = false
+    await startScan(true)
+  } catch (error) {
+    console.error('Platform Worker retry failed:', error)
+    workerRetryAvailable.value = true
+    setupError.value = t('msg_worker_retry_failed')
+  } finally {
+    isRetryingWorker.value = false
+  }
 }
 
 const getAvailableDevices = (currentIndex, currentType) => {
@@ -757,6 +795,10 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await store
 .scan-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 14px 20px; margin-bottom: 20px; h2 { width: 100%; margin: 0; } }
 .run-context-selectors { min-width: 0; flex: 1; display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: #aaa; font-size: 0.78rem; } select { width: 100%; min-width: 0; box-sizing: border-box; height: 34px; padding: 0 8px; } }
 .scan-controls { display: flex; align-items: center; gap: 10px; .status { margin-right: 10px; color: #aaa; font-size: 0.9rem; &.scanning { color: #f39c12; animation: blink 1s infinite; } } }
+.btn-scan, .btn-worker-retry { min-height: 34px; box-sizing: border-box; padding: 0 12px; border: 1px solid transparent; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; }
+.btn-scan { background: #b46d13; &:hover:not(:disabled) { background: #d17b11; } }
+.btn-worker-retry { min-width: 132px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: #7a3439; border-color: #a95158; &:hover:not(:disabled) { background: #914047; } .spinning { animation: worker-spin 0.8s linear infinite; } }
+.btn-scan:disabled, .btn-worker-retry:disabled { opacity: 0.5; cursor: wait; }
 .device-list-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
 .ref-card { background: #252526; border: 1px solid #3d3d3d; border-radius: 6px; .card-header { background: #333; padding: 8px 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; .ref-name-input { background: #333; border: 1px solid #555; color: white; padding: 4px 8px; border-radius: 4px; margin-left: 8px; width: 140px; font-size: 0.9rem; &:focus { border-color: #3498db; outline: none; } } } .card-body { padding: 10px; } .row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; label { width: 70px; font-size: 0.85rem; color: #888; margin: 0; } select { width: 180px; padding: 4px; font-size: 0.9rem; } } }
 .actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #333; button { padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; &.btn-primary { background: #3498db; color: white; &:hover { background: #2980b9; } } &.btn-secondary { background: #555; color: white; &:hover { background: #666; } } &.btn-success { background: #2ecc71; color: white; &:hover { background: #27ae60; } } &.btn-scan { background: #f39c12; color: white; &:hover { background: #d35400; } } &:disabled { opacity: 0.5; cursor: not-allowed; } } }
@@ -892,11 +934,13 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await store
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes blink { 50% { opacity: 0.5; } }
+@keyframes worker-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 900px) {
   .setup-wizard { padding: 22px; }
   .stage-manager .manager-layout { height: auto; min-height: 520px; grid-template-columns: 150px minmax(0, 1fr); }
   .main-edit { grid-column: 1 / -1; min-height: 330px; }
   .run-context-selectors { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .scan-controls { width: 100%; flex-wrap: wrap; .status { flex: 1 0 100%; margin-right: 0; } }
 }
 </style>

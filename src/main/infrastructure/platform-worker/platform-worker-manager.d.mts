@@ -15,6 +15,10 @@ interface PlatformWorkerManagerDependencies {
 export class PlatformWorkerManager {
   constructor(dependencies: PlatformWorkerManagerDependencies)
   start(): Promise<unknown>
+  retry(): Promise<{
+    status: 'ready' | 'already_ready'
+    hello?: unknown
+  }>
   request(
     method: string,
     params?: Record<string, unknown>,

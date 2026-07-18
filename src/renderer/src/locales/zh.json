@@ -118,6 +118,11 @@
   "status_error": "连接失败",
   "msg_timeout": "连接超时，部分设备未响应。",
   "msg_bt_off": "蓝牙未开启或不可用，请检查电脑蓝牙设置。",
+  "msg_scan_failed": "设备扫描失败：{message}",
+  "msg_worker_unavailable": "设备服务不可用，请重试。",
+  "msg_worker_retry_failed": "设备服务重试失败，请检查日志后再次尝试。",
+  "btn_retry_worker": "重试设备服务",
+  "status_retrying_worker": "正在重启设备服务",
   "btn_force": "强制进入",
 
   "sb_btn_stop": "结束",
