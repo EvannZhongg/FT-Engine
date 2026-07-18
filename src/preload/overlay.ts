@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   type FtOverlayApi,
   type MatchRefereeUpdate,
+  type MatchStatusUpdate,
   type OverlayInitialState,
   type Unsubscribe
 } from '../shared/ipc-contract'
@@ -11,7 +12,8 @@ type IpcChannels = typeof import('../shared/ipc-contract').IPC_CHANNELS
 const IPC_CHANNELS = {
   match: {
     refereeUpdated: 'match:referee-updated',
-    contextUpdated: 'match:context-updated'
+    contextUpdated: 'match:context-updated',
+    statusUpdated: 'match:status-updated'
   },
   overlay: {
     open: 'overlay:open',
@@ -21,7 +23,7 @@ const IPC_CHANNELS = {
     initialData: 'overlay:initial-data'
   }
 } as const satisfies {
-  match: Pick<IpcChannels['match'], 'refereeUpdated' | 'contextUpdated'>
+  match: Pick<IpcChannels['match'], 'refereeUpdated' | 'contextUpdated' | 'statusUpdated'>
   overlay: IpcChannels['overlay']
 }
 
@@ -51,7 +53,9 @@ const ftOverlay = {
     subscribe<{ groupName: string; contestantName: string }>(
       IPC_CHANNELS.match.contextUpdated,
       callback
-    )
+    ),
+  onStatusUpdated: (callback) =>
+    subscribe<MatchStatusUpdate>(IPC_CHANNELS.match.statusUpdated, callback)
 } satisfies FtOverlayApi
 
 contextBridge.exposeInMainWorld('ftOverlay', ftOverlay)

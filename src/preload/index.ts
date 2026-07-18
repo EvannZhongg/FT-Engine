@@ -1,8 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import {
-  type FtEngineApi,
-  type Unsubscribe
-} from '../shared/ipc-contract'
+import { type FtEngineApi, type Unsubscribe } from '../shared/ipc-contract'
 
 type IpcChannels = typeof import('../shared/ipc-contract').IPC_CHANNELS
 
@@ -35,6 +32,7 @@ const IPC_CHANNELS = {
   },
   match: {
     start: 'match:start',
+    getStatus: 'match:get-status',
     setContext: 'match:set-context',
     syncPlayback: 'match:sync-playback',
     setMediaBinding: 'match:set-media-binding',
@@ -42,7 +40,8 @@ const IPC_CHANNELS = {
     reset: 'match:reset',
     stop: 'match:stop',
     refereeUpdated: 'match:referee-updated',
-    contextUpdated: 'match:context-updated'
+    contextUpdated: 'match:context-updated',
+    statusUpdated: 'match:status-updated'
   },
   replay: {
     getLegacy: 'replay:get-legacy'
@@ -100,22 +99,19 @@ const ftEngine = {
   },
   match: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.match.start, input),
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.match.getStatus),
     setContext: (groupName, contestantName) =>
       ipcRenderer.invoke(IPC_CHANNELS.match.setContext, groupName, contestantName),
     syncPlayback: (playback) => ipcRenderer.invoke(IPC_CHANNELS.match.syncPlayback, playback),
     setMediaBinding: (groupName, contestantName, binding) =>
-      ipcRenderer.invoke(
-        IPC_CHANNELS.match.setMediaBinding,
-        groupName,
-        contestantName,
-        binding
-      ),
+      ipcRenderer.invoke(IPC_CHANNELS.match.setMediaBinding, groupName, contestantName, binding),
     listScored: (sourceKey, groupName) =>
       ipcRenderer.invoke(IPC_CHANNELS.match.listScored, sourceKey, groupName),
     reset: () => ipcRenderer.invoke(IPC_CHANNELS.match.reset),
     stop: () => ipcRenderer.invoke(IPC_CHANNELS.match.stop),
     onRefereeUpdated: (callback) => subscribe(IPC_CHANNELS.match.refereeUpdated, callback),
-    onContextUpdated: (callback) => subscribe(IPC_CHANNELS.match.contextUpdated, callback)
+    onContextUpdated: (callback) => subscribe(IPC_CHANNELS.match.contextUpdated, callback),
+    onStatusUpdated: (callback) => subscribe(IPC_CHANNELS.match.statusUpdated, callback)
   },
   replay: {
     getLegacy: (sourceKey, groupName, contestantName) =>

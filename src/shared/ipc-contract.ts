@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   },
   match: {
     start: 'match:start',
+    getStatus: 'match:get-status',
     setContext: 'match:set-context',
     syncPlayback: 'match:sync-playback',
     setMediaBinding: 'match:set-media-binding',
@@ -34,7 +35,8 @@ export const IPC_CHANNELS = {
     reset: 'match:reset',
     stop: 'match:stop',
     refereeUpdated: 'match:referee-updated',
-    contextUpdated: 'match:context-updated'
+    contextUpdated: 'match:context-updated',
+    statusUpdated: 'match:status-updated'
   },
   replay: {
     getLegacy: 'replay:get-legacy'
@@ -152,6 +154,15 @@ export interface MatchRefereeUpdate {
   status: { pri: string; sec: string }
 }
 
+export interface MatchStatusUpdate {
+  state: 'idle' | 'starting' | 'active' | 'stopping' | 'completed' | 'failed'
+  persistence: 'idle' | 'saving' | 'saved' | 'error'
+  worker: 'idle' | 'ready' | 'reconnecting' | 'error'
+  media: 'not_ready' | 'aligned' | 'stale' | 'context_mismatch'
+  errorCode: string | null
+  lastSavedAt: string | null
+}
+
 export interface ReplayEvent {
   event_id: string
   system_time: string
@@ -197,12 +208,21 @@ export interface LegacyReportResult {
     }>
     media: Record<string, Record<string, Record<string, string>>>
   }
-  scores: Record<string, Record<string, Record<number, {
-    total: number
-    plus: number
-    minus: number
-    penalty: number
-  }>>>
+  scores: Record<
+    string,
+    Record<
+      string,
+      Record<
+        number,
+        {
+          total: number
+          plus: number
+          minus: number
+          penalty: number
+        }
+      >
+    >
+  >
 }
 
 export type LegacyProjectSummary = LegacyReportResult['config'] & {
@@ -244,11 +264,18 @@ export interface FtEngineApi {
     getWindowBounds: (windowId: string) => Promise<WindowBoundsResult>
   }
   devices: {
-    scan: (options: { flush: boolean; remarks: Record<string, string> }) => Promise<DeviceScanResult>
+    scan: (options: {
+      flush: boolean
+      remarks: Record<string, string>
+    }) => Promise<DeviceScanResult>
     rename: (requests: DeviceRenameRequest[]) => Promise<DeviceRenameResult[]>
   }
   match: {
-    start: (input: MatchStartInput) => Promise<{ connections: unknown[] }>
+    start: (input: MatchStartInput) => Promise<{
+      connections: unknown[]
+      status: MatchStatusUpdate
+    }>
+    getStatus: () => Promise<MatchStatusUpdate>
     setContext: (groupName: string, contestantName: string) => Promise<void>
     syncPlayback: (playback: Record<string, unknown>) => Promise<void>
     setMediaBinding: (
@@ -263,10 +290,14 @@ export interface FtEngineApi {
     onContextUpdated: (
       callback: (context: { groupName: string; contestantName: string }) => void
     ) => Unsubscribe
+    onStatusUpdated: (callback: (status: MatchStatusUpdate) => void) => Unsubscribe
   }
   replay: {
-    getLegacy: (sourceKey: string, groupName: string, contestantName: string) =>
-      Promise<LegacyReplayResult | null>
+    getLegacy: (
+      sourceKey: string,
+      groupName: string,
+      contestantName: string
+    ) => Promise<LegacyReplayResult | null>
   }
   reports: {
     getLegacy: (sourceKey: string) => Promise<LegacyReportResult | null>
@@ -290,4 +321,5 @@ export interface FtOverlayApi {
   onContextUpdated: (
     callback: (context: { groupName: string; contestantName: string }) => void
   ) => Unsubscribe
+  onStatusUpdated: (callback: (status: MatchStatusUpdate) => void) => Unsubscribe
 }

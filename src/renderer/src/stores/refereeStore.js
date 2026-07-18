@@ -4,7 +4,17 @@ import axios from 'axios'
 let stopMatchPromise = null
 let removeMatchRefereeListener = () => {}
 let removeMatchContextListener = () => {}
+let removeMatchStatusListener = () => {}
 let matchListenersConnected = false
+
+const initialMatchStatus = () => ({
+  state: 'idle',
+  persistence: 'idle',
+  worker: 'idle',
+  media: 'not_ready',
+  errorCode: null,
+  lastSavedAt: null
+})
 
 export const useRefereeStore = defineStore('referee', {
   state: () => ({
@@ -14,6 +24,7 @@ export const useRefereeStore = defineStore('referee', {
     referees: {},
     isConnected: false,
     matchActive: false,
+    matchStatus: initialMatchStatus(),
     ws: null,
     projectConfig: {name: '', mode: 'FREE', groups: []},
     currentContext: {groupName: '', contestantName: ''},
@@ -266,8 +277,6 @@ export const useRefereeStore = defineStore('referee', {
     async startMatch(config) {
       try {
         if (stopMatchPromise) await stopMatchPromise
-        this.matchActive = true
-
         // 重置本地状态
         this.referees = {}
         config.referees.forEach(r => {
@@ -279,7 +288,7 @@ export const useRefereeStore = defineStore('referee', {
           }
         })
         if (window.ftEngine?.match) {
-          await window.ftEngine.match.start({
+          const result = await window.ftEngine.match.start({
             sourceKey: this.projectConfig.source_key,
             groupName: this.currentContext.groupName,
             contestantName: this.currentContext.contestantName,
@@ -291,8 +300,11 @@ export const useRefereeStore = defineStore('referee', {
               secondaryDeviceId: referee.mode === 'DUAL' ? referee.sec_addr || null : null
             }))
           })
+          this.matchStatus = result.status
+          this.matchActive = result.status.state === 'active'
         } else {
           await axios.post(`${this.apiBase}/setup`, config)
+          this.matchActive = true
         }
       } catch (e) {
         console.error("Setup failed:", e)
@@ -344,6 +356,7 @@ export const useRefereeStore = defineStore('referee', {
           }
         } finally {
           this.matchActive = false
+          if (!window.ftEngine?.match) this.matchStatus = initialMatchStatus()
           this.referees = {}
           this.currentContext = {groupName: '', contestantName: ''}
         }
@@ -429,7 +442,7 @@ export const useRefereeStore = defineStore('referee', {
       }
     },
 
-    connectMatchEvents() {
+    async connectMatchEvents() {
       if (matchListenersConnected || !window.ftEngine?.match) return
       removeMatchRefereeListener = window.ftEngine.match.onRefereeUpdated((update) => {
         this.updateScore(update)
@@ -437,14 +450,22 @@ export const useRefereeStore = defineStore('referee', {
       removeMatchContextListener = window.ftEngine.match.onContextUpdated((context) => {
         this.currentContext = context
       })
+      removeMatchStatusListener = window.ftEngine.match.onStatusUpdated((status) => {
+        this.matchStatus = status
+        this.matchActive = status.state === 'starting' || status.state === 'active'
+      })
       matchListenersConnected = true
+      this.matchStatus = await window.ftEngine.match.getStatus()
+      this.matchActive = this.matchStatus.state === 'starting' || this.matchStatus.state === 'active'
     },
 
     disconnectMatchEvents() {
       removeMatchRefereeListener()
       removeMatchContextListener()
+      removeMatchStatusListener()
       removeMatchRefereeListener = () => {}
       removeMatchContextListener = () => {}
+      removeMatchStatusListener = () => {}
       matchListenersConnected = false
     },
 

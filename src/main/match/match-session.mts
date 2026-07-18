@@ -7,10 +7,9 @@ import {
   type RefereeScoringState
 } from '../domain/scoring.mts'
 import type {
-  LegacyEventContext,
-  StoredScoreEvent
+  LegacyScoreEventWrite,
+  LegacyScoreEventWriteResult
 } from '../persistence/local-database.mts'
-
 
 export interface MatchRefereeBinding {
   index: number
@@ -35,10 +34,15 @@ export interface MatchRefereeUpdate {
   status: { pri: string; sec: string }
 }
 
-interface WorkerEventMessage {
-  event?: string
-  eventId?: string
-  payload?: Record<string, unknown>
+export type MatchSessionState = 'idle' | 'starting' | 'active' | 'stopping' | 'completed' | 'failed'
+
+export interface MatchStatusUpdate {
+  state: MatchSessionState
+  persistence: 'idle' | 'saving' | 'saved' | 'error'
+  worker: 'idle' | 'ready' | 'reconnecting' | 'error'
+  media: 'not_ready' | 'aligned' | 'stale' | 'context_mismatch'
+  errorCode: string | null
+  lastSavedAt: string | null
 }
 
 interface RefereeRuntime {
@@ -56,25 +60,22 @@ interface ConnectionRuntime {
 }
 
 interface MatchSessionDependencies {
-  requestWorker: (method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>
-  appendEvent: (event: StoredScoreEvent) => boolean
-  ensureEventContext: (
-    sourceKey: string,
-    groupName: string,
-    contestantName: string,
-    refereeIndex: number,
-    refereeName: string,
-    refereeMode: RefereeMode
-  ) => LegacyEventContext | null
+  requestWorker: (
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number
+  ) => Promise<unknown>
+  persistEvent: (input: LegacyScoreEventWrite) => LegacyScoreEventWriteResult
   emitRefereeUpdate: (update: MatchRefereeUpdate) => void
   emitContextUpdate?: (context: { groupName: string; contestantName: string }) => void
+  emitStatusUpdate?: (status: MatchStatusUpdate) => void
   upsertMediaBinding?: (
     sourceKey: string,
     groupName: string,
     contestantName: string,
     binding: { provider: string; mediaId: string; canonicalUrl: string }
   ) => boolean
-  onPersistenceError?: (code: string) => void
+  onError?: (code: string, error?: unknown) => void
   now?: () => Date
   monotonicNow?: () => number
 }
@@ -87,6 +88,13 @@ interface PlaybackAnchor {
   state: 'playing' | 'paused' | 'buffering' | 'cued' | 'ended'
   playbackRate: number
   receivedAtMs: number
+}
+
+interface MediaCapture {
+  provider: string
+  mediaId: string
+  mediaTimeMs: number | null
+  status: MatchStatusUpdate['media']
 }
 
 export class MatchSessionError extends Error {
@@ -102,123 +110,209 @@ export class MatchSessionService {
   private readonly dependencies: MatchSessionDependencies
   private readonly referees = new Map<number, RefereeRuntime>()
   private readonly connections = new Map<string, ConnectionRuntime>()
-  private active = false
+  private state: MatchSessionState = 'idle'
+  private persistence: MatchStatusUpdate['persistence'] = 'idle'
+  private worker: MatchStatusUpdate['worker'] = 'idle'
+  private media: MatchStatusUpdate['media'] = 'not_ready'
+  private errorCode: string | null = null
+  private lastSavedAt: string | null = null
   private sourceKey = ''
   private groupName = ''
   private contestantName = ''
   private playbackAnchor: PlaybackAnchor | null = null
+  private operationVersion = 0
+  private controlOperationPending = false
 
   constructor(dependencies: MatchSessionDependencies) {
     this.dependencies = dependencies
   }
 
-  async start(input: MatchStartInput): Promise<{ connections: unknown[] }> {
-    const normalized = validateStartInput(input)
-    await this.dependencies.requestWorker('device.disconnectAll')
-    this.referees.clear()
-    this.connections.clear()
-    this.sourceKey = normalized.sourceKey
-    this.groupName = normalized.groupName
-    this.contestantName = normalized.contestantName
-    this.active = true
+  getStatus(): MatchStatusUpdate {
+    return {
+      state: this.state,
+      persistence: this.persistence,
+      worker: this.worker,
+      media: this.media,
+      errorCode: this.errorCode,
+      lastSavedAt: this.lastSavedAt
+    }
+  }
 
-    const requests: Array<{ connectionId: string; deviceId: string }> = []
-    for (const binding of normalized.referees) {
-      const runtime: RefereeRuntime = {
-        index: binding.index,
-        name: binding.name,
-        mode: binding.mode,
-        scoring: createRefereeScoringState(binding.mode),
-        status: {
-          pri: binding.primaryDeviceId ? 'connecting' : 'n/a',
-          sec: binding.mode === 'DUAL' && binding.secondaryDeviceId ? 'connecting' : 'n/a'
-        }
-      }
-      this.referees.set(binding.index, runtime)
-      this.addConnection(requests, binding.index, 'primary', binding.primaryDeviceId)
-      if (binding.mode === 'DUAL') {
-        this.addConnection(requests, binding.index, 'secondary', binding.secondaryDeviceId)
-      }
-      this.emit(runtime)
+  async start(
+    input: MatchStartInput
+  ): Promise<{ connections: unknown[]; status: MatchStatusUpdate }> {
+    const normalized = validateStartInput(input)
+    if (this.state === 'starting' || this.state === 'active' || this.state === 'stopping') {
+      throw new MatchSessionError('MATCH_STATE_CONFLICT', `Cannot start while ${this.state}`)
     }
 
-    if (requests.length === 0) return { connections: [] }
-    return this.connectConfigured(requests, true)
+    const operationVersion = ++this.operationVersion
+    this.state = 'starting'
+    this.persistence = 'idle'
+    this.worker = 'reconnecting'
+    this.media = 'not_ready'
+    this.errorCode = null
+    this.lastSavedAt = null
+    this.publishStatus()
+
+    try {
+      await this.dependencies.requestWorker('device.disconnectAll')
+      this.assertCurrentOperation(operationVersion)
+      this.configure(normalized)
+
+      const requests = this.buildConnectionRequests(normalized.referees)
+      if (requests.length === 0) {
+        this.worker = 'ready'
+        this.state = 'active'
+        this.publishStatus()
+        return { connections: [], status: this.getStatus() }
+      }
+
+      const result = await this.connectConfigured(requests)
+      this.assertCurrentOperation(operationVersion)
+      this.state = 'active'
+      this.updateWorkerStatusFromConnections()
+      this.publishStatus()
+      return { ...result, status: this.getStatus() }
+    } catch (error) {
+      if (operationVersion !== this.operationVersion) {
+        await this.disconnectAfterCancelledStart()
+        throw new MatchSessionError('MATCH_START_CANCELLED', 'Match start was cancelled')
+      }
+      this.state = 'failed'
+      this.worker = 'error'
+      this.errorCode = stableErrorCode(error, 'MATCH_START_FAILED')
+      this.publishStatus()
+      await this.disconnectAfterCancelledStart()
+      throw error
+    }
   }
 
   isActive(): boolean {
-    return this.active
+    return this.state === 'active'
+  }
+
+  beginStopping(): boolean {
+    if (this.state === 'idle' || this.state === 'completed') return false
+    if (this.state === 'stopping') return true
+    this.operationVersion += 1
+    this.state = 'stopping'
+    this.publishStatus()
+    return true
+  }
+
+  completeStop(ok: boolean): void {
+    if (this.state !== 'stopping') return
+    this.connections.clear()
+    this.referees.clear()
+    this.playbackAnchor = null
+    this.controlOperationPending = false
+    this.worker = 'idle'
+    this.media = 'not_ready'
+    if (ok) {
+      this.state = 'completed'
+      this.persistence = 'idle'
+      this.errorCode = null
+    } else {
+      this.state = 'failed'
+      this.errorCode = 'MATCH_STOP_FAILED'
+    }
+    this.publishStatus()
   }
 
   markWorkerUnavailable(): void {
-    if (!this.active) return
+    if (this.state !== 'starting' && this.state !== 'active') return
+    this.worker = 'error'
+    this.errorCode = 'MATCH_WORKER_UNAVAILABLE'
     for (const runtime of this.referees.values()) {
       if (runtime.status.pri !== 'n/a') runtime.status.pri = 'error'
       if (runtime.status.sec !== 'n/a') runtime.status.sec = 'error'
-      this.emit(runtime)
+      this.emitReferee(runtime)
     }
+    this.publishStatus()
   }
 
   async reconnectWorker(): Promise<{ connections: unknown[] }> {
-    if (!this.active) return { connections: [] }
+    if (this.state !== 'active') return { connections: [] }
+    const operationVersion = this.operationVersion
     const requests = [...this.connections].map(([connectionId, value]) => ({
       connectionId,
       deviceId: value.deviceId
     }))
+    this.worker = 'reconnecting'
+    this.errorCode = null
     for (const runtime of this.referees.values()) {
       if (runtime.status.pri !== 'n/a') runtime.status.pri = 'connecting'
       if (runtime.status.sec !== 'n/a') runtime.status.sec = 'connecting'
-      this.emit(runtime)
+      this.emitReferee(runtime)
     }
-    return this.connectConfigured(requests, false)
-  }
+    this.publishStatus()
 
-  private async connectConfigured(
-    requests: Array<{ connectionId: string; deviceId: string }>,
-    deactivateOnFailure: boolean
-  ): Promise<{ connections: unknown[] }> {
     try {
-      const result = await this.dependencies.requestWorker(
-        'device.connectMany',
-        { connections: requests },
-        30000
-      ) as { connections?: unknown[] }
-      for (const value of result.connections ?? []) this.applyConnectionResult(value)
-      return { connections: result.connections ?? [] }
+      const result = await this.connectConfigured(requests)
+      this.assertCurrentOperation(operationVersion)
+      this.updateWorkerStatusFromConnections()
+      this.publishStatus()
+      return result
     } catch (error) {
-      if (deactivateOnFailure) this.active = false
-      for (const runtime of this.referees.values()) {
-        if (runtime.status.pri === 'connecting') runtime.status.pri = 'error'
-        if (runtime.status.sec === 'connecting') runtime.status.sec = 'error'
-        this.emit(runtime)
+      if (operationVersion === this.operationVersion && this.state === 'active') {
+        this.worker = 'error'
+        this.errorCode = 'MATCH_WORKER_RECONNECT_FAILED'
+        this.reportError(this.errorCode, error)
       }
       throw error
     }
   }
 
-  setContext(groupName: string, contestantName: string): void {
-    if (typeof groupName !== 'string' || !groupName || groupName.length > 256) {
-      throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'groupName is required')
+  async setContext(groupName: string, contestantName: string): Promise<void> {
+    validateContext(groupName, contestantName)
+    this.requireActive()
+    if (groupName === this.groupName && contestantName === this.contestantName) return
+    if (this.controlOperationPending) {
+      throw new MatchSessionError('MATCH_OPERATION_IN_PROGRESS', 'A match control is in progress')
     }
-    if (typeof contestantName !== 'string' || !contestantName || contestantName.length > 256) {
-      throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'contestantName is required')
+
+    const operationVersion = this.operationVersion
+    this.controlOperationPending = true
+    try {
+      await this.dependencies.requestWorker('device.resetAll', {}, 10000)
+      this.assertCurrentOperation(operationVersion)
+      this.groupName = groupName
+      this.contestantName = contestantName
+      for (const runtime of this.referees.values()) {
+        runtime.scoring = resetRefereeScoringState(runtime.scoring)
+        this.emitReferee(runtime)
+      }
+      this.media = this.captureMedia().status
+      this.emitContext({ groupName, contestantName })
+      this.publishStatus()
+    } finally {
+      this.controlOperationPending = false
     }
-    this.groupName = groupName
-    this.contestantName = contestantName
-    this.dependencies.emitContextUpdate?.({ groupName, contestantName })
   }
 
   async reset(): Promise<unknown> {
-    if (!this.active) throw new MatchSessionError('MATCH_NOT_ACTIVE', 'Match is not active')
-    const result = await this.dependencies.requestWorker('device.resetAll', {}, 10000)
-    for (const runtime of this.referees.values()) {
-      runtime.scoring = resetRefereeScoringState(runtime.scoring)
-      this.emit(runtime)
+    this.requireActive()
+    if (this.controlOperationPending) {
+      throw new MatchSessionError('MATCH_OPERATION_IN_PROGRESS', 'A match control is in progress')
     }
-    return result
+    const operationVersion = this.operationVersion
+    this.controlOperationPending = true
+    try {
+      const result = await this.dependencies.requestWorker('device.resetAll', {}, 10000)
+      this.assertCurrentOperation(operationVersion)
+      for (const runtime of this.referees.values()) {
+        runtime.scoring = resetRefereeScoringState(runtime.scoring)
+        this.emitReferee(runtime)
+      }
+      return result
+    } finally {
+      this.controlOperationPending = false
+    }
   }
 
   updatePlayback(value: Record<string, unknown>): void {
+    this.requireActive()
     const groupName = stringValue(value.group)
     const contestantName = stringValue(value.contestant)
     const videoId = stringValue(value.video_id)
@@ -247,6 +341,8 @@ export class MatchSessionService {
       playbackRate,
       receivedAtMs: this.monotonicNow()
     }
+    this.media = this.captureMedia().status
+    this.publishStatus()
   }
 
   setMediaBinding(
@@ -254,6 +350,7 @@ export class MatchSessionService {
     contestantName: string,
     binding: { provider: string; mediaId: string; canonicalUrl: string }
   ): boolean {
+    this.requireActive()
     if (
       !groupName ||
       !contestantName ||
@@ -264,49 +361,177 @@ export class MatchSessionService {
     ) {
       throw new MatchSessionError('MATCH_MEDIA_INVALID', 'Media binding is invalid')
     }
-    return this.dependencies.upsertMediaBinding?.(
-      this.sourceKey,
-      groupName,
-      contestantName,
-      binding
-    ) ?? false
+    return (
+      this.dependencies.upsertMediaBinding?.(this.sourceKey, groupName, contestantName, binding) ??
+      false
+    )
   }
 
-  handleWorkerEvent(message: WorkerEventMessage): void {
-    if (!this.active || !message.payload) return
-    const connectionId = stringValue(message.payload.connectionId)
+  handleWorkerEvent(message: unknown): void {
+    if (this.state !== 'starting' && this.state !== 'active') return
+    try {
+      this.handleWorkerEventUnsafe(message)
+    } catch (error) {
+      this.reportError(stableErrorCode(error, 'MATCH_EVENT_INVALID'), error)
+    }
+  }
+
+  private handleWorkerEventUnsafe(message: unknown): void {
+    if (!isRecord(message)) return
+    if (message.event !== 'device.status' && message.event !== 'device.counter') return
+    if (!isRecord(message.payload)) {
+      throw new MatchSessionError('MATCH_EVENT_INVALID', 'Worker event payload is invalid')
+    }
+    const payload = message.payload
+    const connectionId = stringValue(payload.connectionId)
     const connection = this.connections.get(connectionId)
     if (!connection) return
     const runtime = this.referees.get(connection.refereeIndex)
     if (!runtime) return
 
     if (message.event === 'device.status') {
-      const status = stringValue(message.payload.status)
-      runtime.status[connection.role === 'primary' ? 'pri' : 'sec'] = status || 'error'
-      this.emit(runtime)
+      const status = stringValue(payload.status)
+      if (!status || status.length > 64) {
+        throw new MatchSessionError('MATCH_EVENT_INVALID', 'Device status is invalid')
+      }
+      runtime.status[connection.role === 'primary' ? 'pri' : 'sec'] = status
+      this.emitReferee(runtime)
       return
     }
-    if (message.event !== 'device.counter' || typeof message.eventId !== 'string') return
+    if (message.event !== 'device.counter') return
+    if (typeof message.eventId !== 'string') {
+      throw new MatchSessionError('MATCH_EVENT_INVALID', 'Counter event id is invalid')
+    }
 
     const next = applyDeviceCounterEvent(runtime.scoring, {
       eventId: message.eventId,
       role: connection.role,
-      eventType: integerValue(message.payload.eventType),
-      totalPlus: integerValue(message.payload.totalPlus),
-      totalMinus: integerValue(message.payload.totalMinus),
-      deviceTimestampMs: integerValue(message.payload.deviceTimestampMs)
+      eventType: integerValue(payload.eventType),
+      totalPlus: integerValue(payload.totalPlus),
+      totalMinus: integerValue(payload.totalMinus),
+      deviceTimestampMs: integerValue(payload.deviceTimestampMs)
     })
     if (next === runtime.scoring) return
-    runtime.scoring = next
-    this.persistEvent(runtime, connectionId, connection, message)
-    this.emit(runtime)
+    this.persistCounterEvent(runtime, next, connectionId, connection, { ...message, payload })
   }
 
-  finish(): void {
-    this.active = false
-    this.connections.clear()
+  private persistCounterEvent(
+    runtime: RefereeRuntime,
+    next: RefereeScoringState,
+    connectionId: string,
+    connection: ConnectionRuntime,
+    message: Record<string, unknown> & { payload: Record<string, unknown> }
+  ): void {
+    const timestamp = this.now().toISOString()
+    const media = this.captureMedia()
+    this.persistence = 'saving'
+    this.media = media.status
+    this.errorCode = null
+    this.publishStatus()
+
+    let result: LegacyScoreEventWriteResult
+    try {
+      result = this.dependencies.persistEvent({
+        sourceKey: this.sourceKey,
+        groupName: this.groupName,
+        contestantName: this.contestantName,
+        refereeIndex: runtime.index,
+        refereeName: runtime.name,
+        refereeMode: runtime.mode,
+        event: {
+          eventId: String(message.eventId),
+          connectionId,
+          deviceId: connection.deviceId,
+          role: connection.role,
+          eventType: integerValue(message.payload.eventType),
+          deviceTimestampMs: integerValue(message.payload.deviceTimestampMs),
+          receivedAt: timestamp,
+          systemTime: timestamp,
+          totalPlus: next.score.plus,
+          totalMinus: next.score.minus,
+          currentTotal: next.score.total,
+          majorPenalty: next.score.penalty,
+          mediaProvider: media.provider,
+          mediaId: media.mediaId,
+          mediaTimeMs: media.mediaTimeMs,
+          mediaSyncStatus: media.status
+        }
+      })
+    } catch (error) {
+      this.persistence = 'error'
+      this.reportError('MATCH_EVENT_PERSIST_FAILED', error)
+      return
+    }
+
+    if (result.status === 'context_missing') {
+      this.persistence = 'error'
+      this.reportError('MATCH_EVENT_CONTEXT_NOT_FOUND')
+      return
+    }
+
+    this.persistence = 'saved'
+    if (result.status === 'inserted') {
+      runtime.scoring = next
+      this.lastSavedAt = timestamp
+      this.emitReferee(runtime)
+    }
+    this.publishStatus()
+  }
+
+  private configure(input: MatchStartInput): void {
     this.referees.clear()
+    this.connections.clear()
+    this.sourceKey = input.sourceKey
+    this.groupName = input.groupName
+    this.contestantName = input.contestantName
     this.playbackAnchor = null
+    for (const binding of input.referees) {
+      const runtime: RefereeRuntime = {
+        index: binding.index,
+        name: binding.name,
+        mode: binding.mode,
+        scoring: createRefereeScoringState(binding.mode),
+        status: {
+          pri: binding.primaryDeviceId ? 'connecting' : 'n/a',
+          sec: binding.mode === 'DUAL' && binding.secondaryDeviceId ? 'connecting' : 'n/a'
+        }
+      }
+      this.referees.set(binding.index, runtime)
+      this.emitReferee(runtime)
+    }
+  }
+
+  private buildConnectionRequests(
+    bindings: MatchRefereeBinding[]
+  ): Array<{ connectionId: string; deviceId: string }> {
+    const requests: Array<{ connectionId: string; deviceId: string }> = []
+    for (const binding of bindings) {
+      this.addConnection(requests, binding.index, 'primary', binding.primaryDeviceId)
+      if (binding.mode === 'DUAL') {
+        this.addConnection(requests, binding.index, 'secondary', binding.secondaryDeviceId)
+      }
+    }
+    return requests
+  }
+
+  private async connectConfigured(
+    requests: Array<{ connectionId: string; deviceId: string }>
+  ): Promise<{ connections: unknown[] }> {
+    const result = (await this.dependencies.requestWorker(
+      'device.connectMany',
+      { connections: requests },
+      30000
+    )) as { connections?: unknown[] }
+    for (const value of result.connections ?? []) this.applyConnectionResult(value)
+    return { connections: result.connections ?? [] }
+  }
+
+  private updateWorkerStatusFromConnections(): void {
+    const hasError = [...this.referees.values()].some(
+      (runtime) => runtime.status.pri === 'error' || runtime.status.sec === 'error'
+    )
+    this.worker = hasError ? 'error' : 'ready'
+    this.errorCode = hasError ? 'MATCH_DEVICE_CONNECTION_FAILED' : null
   }
 
   private addConnection(
@@ -322,76 +547,61 @@ export class MatchSessionService {
   }
 
   private applyConnectionResult(value: unknown): void {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return
-    const record = value as Record<string, unknown>
-    const connection = this.connections.get(stringValue(record.connectionId))
+    if (!isRecord(value)) return
+    const connection = this.connections.get(stringValue(value.connectionId))
     if (!connection) return
     const runtime = this.referees.get(connection.refereeIndex)
     if (!runtime) return
-    const status = record.status === 'connected' ? 'connected' : 'error'
+    const status = value.status === 'connected' ? 'connected' : 'error'
     runtime.status[connection.role === 'primary' ? 'pri' : 'sec'] = status
-    this.emit(runtime)
+    this.emitReferee(runtime)
   }
 
-  private persistEvent(
-    runtime: RefereeRuntime,
-    connectionId: string,
-    connection: ConnectionRuntime,
-    message: WorkerEventMessage
-  ): void {
-    const context = this.dependencies.ensureEventContext(
-      this.sourceKey,
-      this.groupName,
-      this.contestantName,
-      runtime.index,
-      runtime.name,
-      runtime.mode
-    )
-    if (!context) {
-      this.dependencies.onPersistenceError?.('MATCH_EVENT_CONTEXT_NOT_FOUND')
-      return
+  private emitReferee(runtime: RefereeRuntime): void {
+    try {
+      this.dependencies.emitRefereeUpdate({
+        index: runtime.index,
+        name: runtime.name,
+        mode: runtime.mode,
+        score: { ...runtime.scoring.score },
+        status: { ...runtime.status }
+      })
+    } catch (error) {
+      this.notifyError('MATCH_RENDERER_NOTIFY_FAILED', error)
     }
-    const timestamp = (this.dependencies.now ?? (() => new Date()))().toISOString()
-    const payload = message.payload ?? {}
-    const media = this.captureMedia()
-    this.dependencies.appendEvent({
-      eventId: String(message.eventId),
-      matchSessionId: context.matchSessionId,
-      refereeId: context.refereeId,
-      connectionId,
-      deviceId: connection.deviceId,
-      role: connection.role,
-      eventType: integerValue(payload.eventType),
-      deviceTimestampMs: integerValue(payload.deviceTimestampMs),
-      receivedAt: timestamp,
-      systemTime: timestamp,
-      totalPlus: runtime.scoring.score.plus,
-      totalMinus: runtime.scoring.score.minus,
-      currentTotal: runtime.scoring.score.total,
-      majorPenalty: runtime.scoring.score.penalty,
-      mediaProvider: media.provider,
-      mediaId: media.mediaId,
-      mediaTimeMs: media.mediaTimeMs,
-      mediaSyncStatus: media.status
-    })
   }
 
-  private emit(runtime: RefereeRuntime): void {
-    this.dependencies.emitRefereeUpdate({
-      index: runtime.index,
-      name: runtime.name,
-      mode: runtime.mode,
-      score: { ...runtime.scoring.score },
-      status: { ...runtime.status }
-    })
+  private emitContext(context: { groupName: string; contestantName: string }): void {
+    try {
+      this.dependencies.emitContextUpdate?.(context)
+    } catch (error) {
+      this.notifyError('MATCH_RENDERER_NOTIFY_FAILED', error)
+    }
   }
 
-  private captureMedia(): {
-    provider: string
-    mediaId: string
-    mediaTimeMs: number | null
-    status: string
-  } {
+  private publishStatus(): void {
+    try {
+      this.dependencies.emitStatusUpdate?.(this.getStatus())
+    } catch (error) {
+      this.notifyError('MATCH_RENDERER_NOTIFY_FAILED', error)
+    }
+  }
+
+  private reportError(code: string, error?: unknown): void {
+    this.errorCode = code
+    this.notifyError(code, error)
+    this.publishStatus()
+  }
+
+  private notifyError(code: string, error?: unknown): void {
+    try {
+      this.dependencies.onError?.(code, error)
+    } catch {
+      // Error reporting must never escape a Worker EventEmitter callback.
+    }
+  }
+
+  private captureMedia(): MediaCapture {
     const anchor = this.playbackAnchor
     if (!anchor) return { provider: '', mediaId: '', mediaTimeMs: null, status: 'not_ready' }
     if (anchor.groupName !== this.groupName || anchor.contestantName !== this.contestantName) {
@@ -413,6 +623,30 @@ export class MatchSessionService {
       mediaTimeMs: Math.max(0, Math.round(anchor.videoTimeMs + advanced)),
       status: 'aligned'
     }
+  }
+
+  private requireActive(): void {
+    if (this.state !== 'active') {
+      throw new MatchSessionError('MATCH_NOT_ACTIVE', 'Match is not active')
+    }
+  }
+
+  private assertCurrentOperation(operationVersion: number): void {
+    if (operationVersion !== this.operationVersion) {
+      throw new MatchSessionError('MATCH_OPERATION_CANCELLED', 'Match operation was cancelled')
+    }
+  }
+
+  private async disconnectAfterCancelledStart(): Promise<void> {
+    try {
+      await this.dependencies.requestWorker('device.disconnectAll', {}, 5000)
+    } catch {
+      // The original start error remains authoritative.
+    }
+  }
+
+  private now(): Date {
+    return (this.dependencies.now ?? (() => new Date()))()
   }
 
   private monotonicNow(): number {
@@ -459,9 +693,23 @@ function validateStartInput(input: MatchStartInput): MatchStartInput {
       }
       deviceIds.add(deviceId)
     }
-    return { ...value, name: value.name || `Referee ${value.index}`, primaryDeviceId, secondaryDeviceId }
+    return {
+      ...value,
+      name: value.name || `Referee ${value.index}`,
+      primaryDeviceId,
+      secondaryDeviceId
+    }
   })
   return { ...input, referees }
+}
+
+function validateContext(groupName: string, contestantName: string): void {
+  if (typeof groupName !== 'string' || !groupName || groupName.length > 256) {
+    throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'groupName is required')
+  }
+  if (typeof contestantName !== 'string' || !contestantName || contestantName.length > 256) {
+    throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'contestantName is required')
+  }
 }
 
 function optionalId(value: unknown): string | null {
@@ -470,6 +718,14 @@ function optionalId(value: unknown): string | null {
     throw new MatchSessionError('MATCH_CONFIG_INVALID', 'Device id is invalid')
   }
   return value
+}
+
+function stableErrorCode(error: unknown, fallback: string): string {
+  return isRecord(error) && typeof error.code === 'string' && error.code ? error.code : fallback
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function stringValue(value: unknown): string {

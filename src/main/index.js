@@ -157,13 +157,9 @@ const matchSession = new MatchSessionService({
     if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
     return platformWorker.request(method, params, timeoutMs)
   },
-  appendEvent: (event) => {
+  persistEvent: (input) => {
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.appendScoreEvent(event)
-  },
-  ensureEventContext: (...args) => {
-    if (!localDatabase) return null
-    return localDatabase.ensureLegacyEventContext(...args)
+    return localDatabase.appendLegacyScoreEvent(input)
   },
   upsertMediaBinding: (...args) => {
     if (!localDatabase) return false
@@ -171,15 +167,17 @@ const matchSession = new MatchSessionService({
   },
   emitRefereeUpdate: (update) => sendMatchEvent(IPC_CHANNELS.match.refereeUpdated, update),
   emitContextUpdate: (context) => sendMatchEvent(IPC_CHANNELS.match.contextUpdated, context),
-  onPersistenceError: (code) => {
-    console.error('[Electron] Match event persistence failed:', code)
-    logToFile(`Match event persistence failed: ${code}`)
+  emitStatusUpdate: (status) => sendMatchEvent(IPC_CHANNELS.match.statusUpdated, status),
+  onError: (code, error) => {
+    console.error('[Electron] Match session error:', code, error || '')
+    logToFile(`Match session error: ${code}`)
   }
 })
 
 async function stopDeviceSessions(reason) {
+  const transitioned = matchSession.beginStopping()
   const result = await deviceLifecycle.stop(reason)
-  matchSession.finish()
+  if (transitioned) matchSession.completeStop(result.ok)
   return result
 }
 
@@ -700,9 +698,14 @@ app.whenReady().then(async () => {
     return matchSession.start(input)
   })
 
-  ipcMain.handle(IPC_CHANNELS.match.setContext, (event, groupName, contestantName) => {
+  ipcMain.handle(IPC_CHANNELS.match.setContext, async (event, groupName, contestantName) => {
     assertMainSender(event)
-    matchSession.setContext(groupName, contestantName)
+    return matchSession.setContext(groupName, contestantName)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.getStatus, (event) => {
+    assertMainSender(event)
+    return matchSession.getStatus()
   })
 
   ipcMain.handle(IPC_CHANNELS.match.syncPlayback, (event, playback) => {

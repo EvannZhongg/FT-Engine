@@ -14,7 +14,6 @@ import {
 import { LocalDatabase } from '../src/main/persistence/local-database.mts'
 import { MatchSessionService } from '../src/main/match/match-session.mts'
 
-
 const tempRoots = []
 
 function createLegacyFixture() {
@@ -26,35 +25,52 @@ function createLegacyFixture() {
   const secondGroup = path.join(projectPath, 'Final Group')
   mkdirSync(firstGroup, { recursive: true })
   mkdirSync(secondGroup, { recursive: true })
-  writeFileSync(path.join(projectPath, 'config.json'), JSON.stringify({
-    project_name: 'Demo Event',
-    mode: 'TOURNAMENT',
-    created_at: '20260718_120000',
-    groups: [
-      { name: 'Open Group', players: ['Alice'], referees: [{ index: 1, name: 'Judge A', mode: 'SINGLE' }] },
-      { name: 'Final Group', players: ['Bob'], referees: [{ index: 1, name: 'Judge B', mode: 'DUAL' }] }
-    ],
-    media: {
-      'Final Group': {
-        Bob: {
-          provider: 'youtube',
-          video_id: 'dQw4w9WgXcQ',
-          canonical_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  writeFileSync(
+    path.join(projectPath, 'config.json'),
+    JSON.stringify(
+      {
+        project_name: 'Demo Event',
+        mode: 'TOURNAMENT',
+        created_at: '20260718_120000',
+        groups: [
+          {
+            name: 'Open Group',
+            players: ['Alice'],
+            referees: [{ index: 1, name: 'Judge A', mode: 'SINGLE' }]
+          },
+          {
+            name: 'Final Group',
+            players: ['Bob'],
+            referees: [{ index: 1, name: 'Judge B', mode: 'DUAL' }]
+          }
+        ],
+        media: {
+          'Final Group': {
+            Bob: {
+              provider: 'youtube',
+              video_id: 'dQw4w9WgXcQ',
+              canonical_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+            }
+          }
         }
-      }
-    }
-  }, null, 2))
-  const oldCsv = [
-    'SystemTime,BLE_Timestamp,DeviceRole,CurrentTotal,EventType,TotalPlus,TotalMinus,MajorPenalty',
-    '2026-07-18 12:00:01.000,100,PRIMARY,1,1,1,0,0',
-    '2026-07-18 12:00:02.000,200,PRIMARY,0,-1,1,1,0'
-  ].join('\n') + '\n'
+      },
+      null,
+      2
+    )
+  )
+  const oldCsv =
+    [
+      'SystemTime,BLE_Timestamp,DeviceRole,CurrentTotal,EventType,TotalPlus,TotalMinus,MajorPenalty',
+      '2026-07-18 12:00:01.000,100,PRIMARY,1,1,1,0,0',
+      '2026-07-18 12:00:02.000,200,PRIMARY,0,-1,1,1,0'
+    ].join('\n') + '\n'
   writeFileSync(path.join(firstGroup, 'Alice_Ref1.csv'), oldCsv)
   const newCsvPath = path.join(secondGroup, 'Bob_Ref1.csv')
-  const newCsv = [
-    'SystemTime,BLE_Timestamp,DeviceRole,CurrentTotal,EventType,TotalPlus,TotalMinus,MajorPenalty,EventId,MediaProvider,MediaId,MediaTimeMs,MediaSyncStatus',
-    '2026-07-18 12:01:01.000,300,PRIMARY,2,1,2,0,0,event-bob-1,youtube,dQw4w9WgXcQ,4500,aligned'
-  ].join('\n') + '\n'
+  const newCsv =
+    [
+      'SystemTime,BLE_Timestamp,DeviceRole,CurrentTotal,EventType,TotalPlus,TotalMinus,MajorPenalty,EventId,MediaProvider,MediaId,MediaTimeMs,MediaSyncStatus',
+      '2026-07-18 12:01:01.000,300,PRIMARY,2,1,2,0,0,event-bob-1,youtube,dQw4w9WgXcQ,4500,aligned'
+    ].join('\n') + '\n'
   writeFileSync(newCsvPath, newCsv)
   tempRoots.push(root)
   return { root, legacyRoot, projectName, projectPath, newCsvPath, newCsv }
@@ -77,14 +93,20 @@ test('imports old projects idempotently and preserves group referee indexes', ()
     assert.equal(graph.competition.createdAt, '2026-07-18T12:00:00')
     assert.equal(graph.groups[0].referees[0].sourceIndex, 1)
     assert.equal(graph.groups[1].referees[0].sourceIndex, 1)
-    assert.notEqual(graph.groups[0].referees[0].storageIndex, graph.groups[1].referees[0].storageIndex)
+    assert.notEqual(
+      graph.groups[0].referees[0].storageIndex,
+      graph.groups[1].referees[0].storageIndex
+    )
 
     const shadowEvent = graph.groups[0].contestants[0].events[0]
-    assert.equal(database.appendScoreEvent({
-      ...shadowEvent,
-      matchSessionId: null,
-      refereeId: null
-    }), true)
+    assert.equal(
+      database.appendScoreEvent({
+        ...shadowEvent,
+        matchSessionId: null,
+        refereeId: null
+      }),
+      true
+    )
 
     const first = importLegacyProjects(database, fixture.legacyRoot)
     assert.deepEqual(first, { projects: 1, imported: 1, events: 3, errors: [] })
@@ -105,31 +127,34 @@ test('imports old projects idempotently and preserves group referee indexes', ()
     assert.equal(typeof eventContext?.refereeId, 'string')
     const aliceReplay = database.getLegacyReplay(fixture.projectName, 'Open Group', 'Alice')
     assert.equal(aliceReplay?.binding, null)
-    assert.deepEqual(aliceReplay?.events.map((event) => ({
-      event_id: event.event_id,
-      referee_index: event.referee_index,
-      referee_name: event.referee_name,
-      delta_plus: event.delta_plus,
-      delta_minus: event.delta_minus,
-      current_total: event.current_total
-    })), [
-      {
-        event_id: 'ref1-row0',
-        referee_index: 1,
-        referee_name: 'Judge A',
-        delta_plus: 1,
-        delta_minus: 0,
-        current_total: 1
-      },
-      {
-        event_id: 'ref1-row1',
-        referee_index: 1,
-        referee_name: 'Judge A',
-        delta_plus: 0,
-        delta_minus: 1,
-        current_total: 0
-      }
-    ])
+    assert.deepEqual(
+      aliceReplay?.events.map((event) => ({
+        event_id: event.event_id,
+        referee_index: event.referee_index,
+        referee_name: event.referee_name,
+        delta_plus: event.delta_plus,
+        delta_minus: event.delta_minus,
+        current_total: event.current_total
+      })),
+      [
+        {
+          event_id: 'ref1-row0',
+          referee_index: 1,
+          referee_name: 'Judge A',
+          delta_plus: 1,
+          delta_minus: 0,
+          current_total: 1
+        },
+        {
+          event_id: 'ref1-row1',
+          referee_index: 1,
+          referee_name: 'Judge A',
+          delta_plus: 0,
+          delta_minus: 1,
+          current_total: 0
+        }
+      ]
+    )
     const bobReplay = database.getLegacyReplay(fixture.projectName, 'Final Group', 'Bob')
     assert.equal(bobReplay?.binding?.video_id, 'dQw4w9WgXcQ')
     assert.equal(bobReplay?.events[0].media_sync_status, 'aligned')
@@ -169,6 +194,56 @@ test('imports old projects idempotently and preserves group referee indexes', ()
   }
 })
 
+test('rolls back a newly created live context when its event is not inserted', () => {
+  const fixture = createLegacyFixture()
+  const database = new LocalDatabase(
+    path.join(fixture.root, 'ft-engine.db'),
+    path.join(fixture.root, 'backups')
+  )
+  database.open()
+  try {
+    importLegacyProjects(database, fixture.legacyRoot)
+    const input = {
+      sourceKey: fixture.projectName,
+      groupName: 'Final Group',
+      contestantName: 'Charlie',
+      refereeIndex: 1,
+      refereeName: 'Judge B',
+      refereeMode: 'DUAL',
+      event: {
+        eventId: 'event-bob-1',
+        connectionId: 'match-ref-1-primary',
+        deviceId: 'primary-device',
+        role: 'primary',
+        eventType: 1,
+        deviceTimestampMs: 400,
+        receivedAt: '2026-07-18T12:02:00.000Z',
+        systemTime: '2026-07-18T12:02:00.000Z',
+        totalPlus: 3,
+        totalMinus: 0,
+        currentTotal: 3,
+        majorPenalty: 0
+      }
+    }
+
+    assert.deepEqual(database.appendLegacyScoreEvent(input), { status: 'duplicate' })
+    assert.equal(
+      database.resolveLegacyEventContext(fixture.projectName, 'Final Group', 'Charlie', 1),
+      null
+    )
+    assert.deepEqual(
+      database.appendLegacyScoreEvent({
+        ...input,
+        event: { ...input.event, eventId: 'event-charlie-1' }
+      }),
+      { status: 'inserted' }
+    )
+    assert.ok(database.resolveLegacyEventContext(fixture.projectName, 'Final Group', 'Charlie', 1))
+  } finally {
+    database.close()
+  }
+})
+
 test('refreshes one imported competition when its source hash changes', () => {
   const fixture = createLegacyFixture()
   const database = new LocalDatabase(
@@ -178,8 +253,11 @@ test('refreshes one imported competition when its source hash changes', () => {
   database.open()
   try {
     importLegacyProjects(database, fixture.legacyRoot)
-    writeFileSync(fixture.newCsvPath, fixture.newCsv +
-      '2026-07-18 12:01:02.000,400,PRIMARY,3,1,3,0,0,event-bob-2,youtube,dQw4w9WgXcQ,5500,aligned\n')
+    writeFileSync(
+      fixture.newCsvPath,
+      fixture.newCsv +
+        '2026-07-18 12:01:02.000,400,PRIMARY,3,1,3,0,0,event-bob-2,youtube,dQw4w9WgXcQ,5500,aligned\n'
+    )
     const updated = importLegacyProject(database, fixture.legacyRoot, fixture.projectName)
     assert.deepEqual(updated, { found: true, imported: true, events: 4 })
     assert.equal(database.getLegacyImportSummary(fixture.projectName)?.events, 4)
@@ -249,8 +327,11 @@ test('keeps SQLite-managed live events when legacy source files change', () => {
       majorPenalty: 0
     })
 
-    writeFileSync(fixture.newCsvPath, fixture.newCsv +
-      '2026-07-18 12:01:02.000,400,PRIMARY,3,1,3,0,0,event-bob-2,youtube,dQw4w9WgXcQ,5500,aligned\n')
+    writeFileSync(
+      fixture.newCsvPath,
+      fixture.newCsv +
+        '2026-07-18 12:01:02.000,400,PRIMARY,3,1,3,0,0,event-bob-2,youtube,dQw4w9WgXcQ,5500,aligned\n'
+    )
     assert.deepEqual(importLegacyProject(database, fixture.legacyRoot, fixture.projectName), {
       found: true,
       imported: false,
@@ -276,11 +357,11 @@ test('serves worker-owned live scores from SQLite in the same run', async () => 
     importLegacyProjects(database, fixture.legacyRoot)
     database.markLegacyProjectLive(fixture.projectName)
     const service = new MatchSessionService({
-      requestWorker: async (method, params = {}) => method === 'device.connectMany'
-        ? { connections: params.connections.map((value) => ({ ...value, status: 'connected' })) }
-        : { connections: [] },
-      appendEvent: (event) => database.appendScoreEvent(event),
-      ensureEventContext: (...args) => database.ensureLegacyEventContext(...args),
+      requestWorker: async (method, params = {}) =>
+        method === 'device.connectMany'
+          ? { connections: params.connections.map((value) => ({ ...value, status: 'connected' })) }
+          : { connections: [] },
+      persistEvent: (input) => database.appendLegacyScoreEvent(input),
       emitRefereeUpdate: () => {},
       now: () => new Date('2026-07-18T13:00:00.000Z')
     })
@@ -288,13 +369,15 @@ test('serves worker-owned live scores from SQLite in the same run', async () => 
       sourceKey: fixture.projectName,
       groupName: 'Final Group',
       contestantName: 'Bob',
-      referees: [{
-        index: 1,
-        name: 'Judge B',
-        mode: 'DUAL',
-        primaryDeviceId: 'primary-device',
-        secondaryDeviceId: 'secondary-device'
-      }]
+      referees: [
+        {
+          index: 1,
+          name: 'Judge B',
+          mode: 'DUAL',
+          primaryDeviceId: 'primary-device',
+          secondaryDeviceId: 'secondary-device'
+        }
+      ]
     })
     service.handleWorkerEvent({
       event: 'device.counter',
@@ -326,8 +409,9 @@ test('serves worker-owned live scores from SQLite in the same run', async () => 
       penalty: 6
     })
     assert.ok(
-      database.getLegacyReplay(fixture.projectName, 'Final Group', 'Bob')?.events
-        .some((event) => event.event_id === 'worker-secondary')
+      database
+        .getLegacyReplay(fixture.projectName, 'Final Group', 'Bob')
+        ?.events.some((event) => event.event_id === 'worker-secondary')
     )
   } finally {
     database.close()
