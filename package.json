@@ -16,7 +16,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "test": "node --test tests/device-lifecycle.test.mjs tests/legacy-importer.test.mjs tests/legacy-shadow-event.test.mjs tests/local-database.test.mjs tests/match-session.test.mjs tests/realtime-boundary.test.mjs tests/replay-scores.test.mjs tests/scoring-domain.test.mjs tests/security-boundary.test.mjs tests/settings-boundary.test.mjs tests/worker-client.test.mjs tests/youtube-media.test.mjs",
+    "test": "node --test tests/competition-service.test.mjs tests/device-lifecycle.test.mjs tests/legacy-importer.test.mjs tests/legacy-shadow-event.test.mjs tests/local-database.test.mjs tests/match-session.test.mjs tests/project-boundary.test.mjs tests/realtime-boundary.test.mjs tests/replay-scores.test.mjs tests/scoring-domain.test.mjs tests/security-boundary.test.mjs tests/settings-boundary.test.mjs tests/worker-client.test.mjs tests/youtube-media.test.mjs",
     "build:backend": "node scripts/build-backend.js",
     "build:backend:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-backend-win.ps1",
     "build:backend:mac": "bash ./scripts/build-backend-mac.sh",

@@ -1,4 +1,10 @@
 import type { YouTubeMediaBinding } from './media/youtube.mts'
+import type {
+  CompetitionConfig,
+  CompetitionGroupConfig,
+  CompetitionListItem,
+  CompetitionMode
+} from './contracts/competition.mts'
 
 export const IPC_CHANNELS = {
   app: {
@@ -51,8 +57,11 @@ export const IPC_CHANNELS = {
     getLegacy: 'reports:get-legacy'
   },
   projects: {
-    listLegacy: 'projects:list-legacy',
-    deleteLegacy: 'projects:delete-legacy'
+    create: 'projects:create',
+    update: 'projects:update',
+    get: 'projects:get',
+    list: 'projects:list',
+    delete: 'projects:delete'
   },
   overlay: {
     open: 'overlay:open',
@@ -325,8 +334,18 @@ export interface FtEngineApi {
     getLegacy: (sourceKey: string) => Promise<LegacyReportResult | null>
   }
   projects: {
-    listLegacy: () => Promise<LegacyProjectSummary[]>
-    deleteLegacy: (sourceKey: string) => Promise<boolean>
+    create: (projectName: string, mode: CompetitionMode) => Promise<CompetitionConfig>
+    update: (
+      sourceKey: string,
+      input: {
+        projectName: string
+        mode: CompetitionMode
+        groups: CompetitionGroupConfig[]
+      }
+    ) => Promise<CompetitionConfig>
+    get: (sourceKey: string) => Promise<CompetitionConfig | null>
+    list: () => Promise<CompetitionListItem[]>
+    delete: (sourceKey: string) => Promise<boolean>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

@@ -1,78 +1,84 @@
 # FT Engine 路线 B：剩余重构计划
 
-> 更新基线：2026-07-18，包含显式 `MatchSession` 状态机、原子事件持久化、实时状态 IPC 和 legacy 实时传输关闭。本文只维护剩余工作，不重复已完成历史。
-
-当前运行事实见 [当前架构](./ARCHITECTURE_CURRENT_zh.md)，最终边界和目录见 [目标架构](./ARCHITECTURE_TARGET_zh.md)。UI 与用户服务分别见 [UI 交互规范](./UI_INTERACTION_SPEC_zh.md) 和 [Django 用户服务](./BACKEND_DJANGO_zh.md)。
+> 更新基线：2026-07-18。新约束：不兼容任何旧项目、旧 CSV 或 legacy 数据目录。本文只保留剩余工作，已完成历史见 [当前架构](./ARCHITECTURE_CURRENT_zh.md)。
 
 ## 1. 当前切换点
 
-实时比赛已经进入 Electron Main 主路径：Renderer 通过 typed IPC 启动 `MatchSessionService`，Platform Worker 连接设备并发送事件，TypeScript 计分域聚合分数，事件直接写入 SQLite。
+实时计分、设备、设置、媒体和项目生命周期已进入 Electron Main/SQLite 主路径。当前工作树的 `CompetitionService` 支持原生 SQLite 项目完成配置和计分。
 
-但这还不是完整切换：项目创建、继续项目、组别配置和导出仍依赖 FastAPI 与 JSON/CSV。设置、设备备注、媒体 URL 规范化、媒体绑定和播放锚点已迁入 Main/SQLite typed IPC。Renderer 已不再创建 localhost WebSocket，实时比赛也不再调用 legacy setup/reset/teardown/context/playback/media 接口。Electron 启动时仍同时启动 FastAPI、Platform Worker 和 SQLite。
+FastAPI 当前实际必要职责只剩 legacy CSV/SRT/ZIP 导出；其他 REST fallback、旧项目 importer、shadow event 和 Python 设备/计分实现均不再具有产品兼容价值，可以按依赖顺序删除。
 
-## 2. P0：稳定实时比赛切换
+## 2. P0：先补齐原生导出
 
-代码级切换已完成：上下文创建与事件追加使用一个 SQLite 事务；内存分数只在插入成功后更新；Worker 事件入口封闭非法 payload、领域和数据库异常；状态机覆盖 `idle/starting/active/stopping/completed/failed`；保存、Worker 和媒体状态通过 IPC 常驻显示；活动比赛只走 Main/Worker，不再走 legacy HTTP/WebSocket。
+1. 实现 Main `ExportService`，只从 SQLite 只读快照生成 CSV、SRT 和 ZIP。
+2. 通过系统保存对话框写入用户选择的位置，不经 Renderer Blob 下载或 localhost HTTP。
+3. 为每种格式建立 SQLite fixture 测试；SRT 时间基准保持现有系统时间语义，不改为 YouTube 时间。
+4. 在原生项目中覆盖整场、组别、选手和裁判范围，以及空数据、路径权限和磁盘错误。
 
-自动测试已覆盖启动失败、切换选手期间事件归属、Worker 重连失败、SQLite 写入失败、重复事件和启停竞争。静态边界测试禁止 Renderer 重新引入 `/setup`、`/reset`、`/teardown`、`/api/match/set_context`、legacy playback sync 或 WebSocket。
+完成门槛：删除 FastAPI 导出接口后，原生项目的报表、视频复盘和全部导出格式仍可用。
 
-P0 剩余发布门槛：
+## 3. P1：删除 Legacy Runtime 和兼容层
 
-1. 在真实 Electron 中开始比赛后停止 FastAPI，完成计分、切换选手、Reset、结束和 SQLite 复盘查询。
-2. 使用真实 Worker 子进程执行崩溃与有限重启验收，确认状态条和手动恢复路径。
-3. 注入真实 SQLite I/O 故障，确认现场分数保持最后持久化值，并验证恢复后的继续计分策略。
+按以下顺序一次完成，不再建设新的 Python 兼容模块：
 
-## 3. P1：项目与本地服务迁入 Main
+1. 删除 Renderer 的 Axios fallback、`apiBase`、server port 配置和 localhost 调用。
+2. 将 `getLegacyReport/getLegacyReplay/listLegacyScoredContestants` 重命名为通用 Query Service，并删除读取前的 legacy refresh。
+3. 删除 Main 的 FastAPI spawn/wait/kill、backend stdout parser、legacy importer、shadow event 和 legacy 目录删除逻辑。
+4. 删除 `server.py` 及其 Scanner、DeviceNode、HeadlessReferee、WebSocket、项目、媒体、存储和导出实现。
+5. 删除 `utils/storage.py`、`utils/media.py`、legacy exporter 及只被 backend 使用的设置/runtime 模块。
+6. 删除 backend-engine 构建脚本、PyInstaller 配置和 Electron Builder 资源，只保留 `local-platform-worker`。
+7. 删除 `match_data` 扫描、旧 `config.json`/CSV header 升级、live-managed、legacy_imports 和旧 DTO 兼容字段；用新的 migration 重建干净 Schema，不迁移旧库数据。
 
-1. 在 SQLite 中直接创建和更新 Competition、Stage、Group、Contestant、Referee、MatchSession，不再要求先创建 legacy 目录再导入。
-2. 设置、设备备注、媒体绑定与播放锚点已迁入 Main/SQLite；YouTube URL 规范化已收口为共享实现并由契约测试覆盖。
-3. 将历史项目“继续”改为读取 SQLite 领域对象，不再通过 `/api/project/load` 修改 Python 全局活动项目。
-4. 将导出拆成 Main application service，通过系统保存对话框写入 `exports/`；CSV/SRT/ZIP 是派生产物，不是数据库主存储。
-5. 增加迁移结果页面：显示失败项目、原因、源目录、重试和只读打开操作。
+完成门槛：应用不启动 Uvicorn、不监听 localhost 端口、不读取 `match_data`，仓库中没有 legacy runtime/importer/shadow event。
 
-完成门槛：Renderer 不再导入 Axios、不创建 localhost WebSocket，本地赛事功能只依赖 IPC。
+## 4. P2：清理测试
 
-## 4. P2：收口组合根并移除 Legacy Backend
+既然不要求旧数据兼容，以下测试和 fixture 应随对应生产代码直接删除：
 
-在 FastAPI 仍存在期间，先按 [目标架构](./ARCHITECTURE_TARGET_zh.md) 将 `server.py` 降为薄组合根。不要继续往该文件增加设备、存储或导出逻辑。
+- `test_scoring_baseline.py`
+- `test_scoring_parity.py`
+- `test_score_snapshot.py`
+- `test_media.py`
+- `test_storage.py`
+- `legacy-importer.test.mjs`
+- `legacy-shadow-event.test.mjs`
+- 只用于旧 CSV 的 fixture 和 header 升级用例
+- `project/realtime/settings boundary` 中只为防止回退 FastAPI 而存在的文本扫描；backend 删除后改为依赖边界测试
 
-当 P0、P1 门槛满足后：
+保留并加强：
 
-1. 停止启动和打包 `server.py`/backend-engine。
-2. 删除 Python 中重复的 Scanner、BLE/USB DeviceNode、HeadlessReferee 和实时 WebSocket。
-3. 删除 shadow stdout 事件协议、legacy 双关断协调和相应构建资源。
-4. 保留一次性 legacy importer，直到支持窗口结束；它只能读旧项目，不得成为新项目运行依赖。
+- TypeScript scoring domain、MatchSession、CompetitionService 和 SQLite Repository 测试。
+- Platform Worker 的协议、BLE/USB 设备服务、重连取消和跨语言握手测试。
+- YouTube normalizer、媒体锚点、复盘重建和 Electron 安全边界测试。
+- 新 ExportService 的格式契约和文件错误测试。
 
-## 5. 测试和冗余代码清理
+测试清理应和生产代码删除在同一提交完成，避免留下导入不存在模块的测试或无测试的替代实现。
 
-本轮只记录清理判定，不删除测试。
+## 5. P3：补齐赛事领域并拆分 Main
 
-| 对象 | 当前判定 | 删除条件 |
-| --- | --- | --- |
-| `test_scoring_baseline.py` 中计分聚合与 Reset | 过渡期兼容基线 | FastAPI 不再拥有实时计分后，由 `scoring-domain`、`match-session` 和 Worker 测试替代 |
-| `test_scoring_parity.py` | 暂时保留 | legacy `HeadlessReferee` 删除时一并删除；共享 fixture 继续由 TS 测试使用 |
-| `test_score_snapshot.py` | 暂时保留 | SQLite 事务集成测试覆盖快速事件和上下文切换后删除 |
-| baseline 中 BLE/USB 重连测试 | 应迁移而非直接删除 | 在 Platform Worker 设备服务测试补齐取消重连后，删除 server 版本 |
-| `legacy-shadow-event.test.mjs` 与 `src/main/legacy/shadow-event.mts` | 兼容层 | FastAPI shadow stdout 停止后删除 |
-| `device-lifecycle.test.mjs` | 已改为单 Worker 生命周期测试 | Platform Worker 生命周期迁入 application service 后随模块移动 |
-| `test_media.py`、`test_storage.py` | 仍有效 | URL/旧 CSV 兼容迁入新模块后迁移用例，不能直接删除 |
-| legacy importer 与测试 | 发布期兼容能力 | 旧项目支持窗口结束且迁移工具独立归档后删除 |
+1. 将默认 `Main` Stage 扩展为正式 Stage service，支持排序、尝试次数和 Competition/Stage/MatchSession 状态流转。
+2. 将 `src/main/index.js` 拆为 bootstrap、窗口生命周期和分域 IPC 注册。
+3. 将 `LocalDatabase` 拆成 migration runner、Competition/Match/Settings Repository 与 Replay/Report Query。
+4. 将 `MatchSessionService` 的设备控制、媒体锚点和状态通知拆为协作者。
+5. 移除 Schema 和共享 DTO 中的 `legacy_*`、`source_referee_index`、`dir_name` 等兼容命名，使用稳定领域 ID。
 
-禁止以“Node 已有同名测试”为理由直接删除 Python 用例。删除必须同时满足：对应 Python 生产路径不可达、新主路径有等价或更强覆盖、打包配置不再包含该生产模块。
+目标目录和依赖方向见 [目标架构](./ARCHITECTURE_TARGET_zh.md)。
 
-## 6. P3：桌面壳层与交互重构
+## 6. P4：桌面壳层与 Renderer 分域
 
-1. 先实现非最大化居中窗口、固定侧栏、受限工作区和主题 Token。
-2. 引入 Vue Router 和分域 Store，移除 `App.vue` 手写 `currentView` 与单一 `refereeStore`。
-3. 将历史赛事从首页模态框改成可筛选页面，将设置从全宽下拉改成独立页面或侧边抽屉。
-4. 按赛事配置、现场计分、复盘三个连续工作流重排控件；详细规则见 [UI 交互规范](./UI_INTERACTION_SPEC_zh.md)。
-5. Overlay 使用独立透明壳层，不继承主窗口背景、圆角和侧栏。
+1. 实现非最大化居中窗口、固定侧栏、受限工作区和 light/dark Token。
+2. 引入 Vue Router 和分域 Store，移除手写 `currentView` 与单一 `refereeStore`。
+3. 将历史赛事改为页面，设置改为独立页面，用应用内 Dialog/状态条替代原生弹窗。
+4. 保持现场播放器旁、视频悬浮模式和复盘中的悬浮计分组件一致。
+5. Overlay 保持独立透明壳层，不继承主窗口背景和侧栏。
 
-## 7. P4：独立用户服务
+详细规范见 [桌面 UI 与交互目标](./UI_INTERACTION_SPEC_zh.md)。
 
-本地链路稳定后再接入 `services/community`。第一期采用 Django + PostgreSQL，桌面端通过 Electron Main Gateway 调用；服务不可用不得阻断本地赛事。具体契约见 [Django 用户服务](./BACKEND_DJANGO_zh.md)。
+## 7. P5：独立用户服务
 
-## 8. 每阶段验证
+本地主链路稳定后再接入 Django + PostgreSQL。Electron Main 通过 Gateway 调用，服务不可用不得阻断本地赛事。见 [Django 用户服务](./BACKEND_DJANGO_zh.md)。
+
+## 8. 验证
 
 ~~~bash
 npm test
@@ -82,4 +88,4 @@ npm run build
 python -m unittest discover -s tests
 ~~~
 
-删除 Legacy Backend 前还需要 Windows/macOS 实机验证 BLE、USB、睡眠恢复、OBS Overlay、YouTube 嵌入、导出和打包安装。PostgreSQL 或社区服务不可用不属于本地比赛失败条件。
+legacy 删除完成后，Python 测试只发现 Platform Worker 相关用例。发布前还需在 Windows/macOS 实机验证 BLE、USB、睡眠恢复、OBS Overlay、YouTube、原生导出和安装包。

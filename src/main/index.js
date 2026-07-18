@@ -19,6 +19,7 @@ import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
 import { DeviceLifecycle } from './match/device-lifecycle.mjs'
 import { MatchSessionService } from './match/match-session.mts'
+import { CompetitionService } from './application/competitions/competition-service.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 import {
   deleteLegacyProjectSource,
@@ -152,6 +153,32 @@ const matchSession = new MatchSessionService({
   }
 })
 
+const competitionService = new CompetitionService({
+  create: (input) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.createCompetition(input)
+  },
+  update: (sourceKey, input) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.updateCompetition(sourceKey, input)
+  },
+  get: (sourceKey) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.getCompetitionConfig(sourceKey)
+  },
+  list: () => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.listCompetitionProjects()
+  },
+  delete: (sourceKey) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    if (localDatabase.isLegacyCompetition(sourceKey)) {
+      deleteLegacyProjectSource(getLegacyProjectRoot(), sourceKey)
+    }
+    return localDatabase.deleteCompetition(sourceKey)
+  }
+})
+
 async function stopDeviceSessions(reason) {
   const transitioned = matchSession.beginStopping()
   const result = await deviceLifecycle.stop(reason)
@@ -214,7 +241,10 @@ const exitPyProc = () => {
         execSync(`taskkill /pid ${pyProc.pid} /f /t`)
         console.log('[Electron] Taskkill executed successfully')
       } catch (error) {
-        console.error('[Electron] Failed to taskkill (process might be already dead):', error.message)
+        console.error(
+          '[Electron] Failed to taskkill (process might be already dead):',
+          error.message
+        )
       }
     } else {
       pyProc.kill()
@@ -252,10 +282,7 @@ function processBackendStdout(chunk) {
 
 function openLocalDatabase() {
   const dataRoot = getDataRoot(app)
-  const database = new LocalDatabase(
-    join(dataRoot, 'ft-engine.db'),
-    join(dataRoot, 'backups')
-  )
+  const database = new LocalDatabase(join(dataRoot, 'ft-engine.db'), join(dataRoot, 'backups'))
   database.open()
   localDatabase = database
   let imported
@@ -268,12 +295,12 @@ function openLocalDatabase() {
   console.log('[Electron] Local database ready:', database.databasePath)
   console.log(
     `[Electron] Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
-    `events=${imported.events}, errors=${imported.errors.length}`
+      `events=${imported.events}, errors=${imported.errors.length}`
   )
   logToFile(`Local database ready: ${database.databasePath}`)
   logToFile(
     `Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
-    `events=${imported.events}, errors=${imported.errors.length}`
+      `events=${imported.events}, errors=${imported.errors.length}`
   )
 }
 
@@ -283,6 +310,9 @@ function getLegacyProjectRoot() {
 
 function refreshLegacyProject(sourceKey) {
   try {
+    if (!localDatabase) return false
+    const existing = localDatabase.getCompetitionConfig(sourceKey)
+    if (existing && !localDatabase.isLegacyCompetition(sourceKey)) return true
     const result = importLegacyProject(localDatabase, getLegacyProjectRoot(), sourceKey)
     if (result.imported) {
       logToFile(`Legacy project refreshed: source=${sourceKey}, events=${result.events}`)
@@ -389,7 +419,7 @@ function schedulePlatformWorkerRestart() {
   const delayMs = platformWorkerRestartCount * 1000
   console.warn(
     `[Electron] Restarting Platform Worker in ${delayMs}ms ` +
-    `(${platformWorkerRestartCount}/${MAX_PLATFORM_WORKER_RESTARTS})`
+      `(${platformWorkerRestartCount}/${MAX_PLATFORM_WORKER_RESTARTS})`
   )
   platformWorkerRestartTimer = setTimeout(async () => {
     platformWorkerRestartTimer = null
@@ -519,14 +549,20 @@ app.whenReady().then(async () => {
   try {
     openLocalDatabase()
   } catch (error) {
-    console.error('[Electron] Shadow database unavailable, legacy storage remains active:', error.message)
+    console.error(
+      '[Electron] Shadow database unavailable, legacy storage remains active:',
+      error.message
+    )
     logToFile(`Shadow database unavailable: ${error.message}`)
   }
   platformWorkerStopping = false
   try {
     await createPlatformWorker()
   } catch (error) {
-    console.error('[Electron] Platform Worker unavailable, legacy backend remains active:', error.message)
+    console.error(
+      '[Electron] Platform Worker unavailable, legacy backend remains active:',
+      error.message
+    )
     logToFile(`Platform Worker unavailable: ${error.message}`)
     schedulePlatformWorkerRestart()
   }
@@ -615,8 +651,10 @@ app.whenReady().then(async () => {
     assertMainSender(event)
     const options = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
     const flush = options.flush === true
-    const rawRemarks = options.remarks && typeof options.remarks === 'object' && !Array.isArray(options.remarks)
-      ? options.remarks : {}
+    const rawRemarks =
+      options.remarks && typeof options.remarks === 'object' && !Array.isArray(options.remarks)
+        ? options.remarks
+        : {}
     const entries = Object.entries(rawRemarks)
     if (entries.length > 1000) throw new Error('IPC_INVALID_DEVICE_REMARKS')
     const remarks = {}
@@ -636,28 +674,44 @@ app.whenReady().then(async () => {
       throw new Error('IPC_INVALID_DEVICE_RENAME')
     }
     if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
-    return Promise.all(value.map(async (item) => {
-      if (
-        !item ||
-        typeof item.deviceId !== 'string' ||
-        !item.deviceId ||
-        item.deviceId.length > 128 ||
-        typeof item.name !== 'string' ||
-        !item.name.trim() ||
-        Buffer.byteLength(item.name.trim(), 'utf8') > 32
-      ) {
-        return { deviceId: String(item?.deviceId || ''), name: String(item?.name || ''), status: 'error', error: 'INVALID_PARAMS' }
-      }
-      try {
-        await platformWorker.request('device.renameDiscovered', {
-          deviceId: item.deviceId,
-          name: item.name.trim()
-        }, 15000)
-        return { deviceId: item.deviceId, name: item.name.trim(), status: 'ok' }
-      } catch (error) {
-        return { deviceId: item.deviceId, name: item.name.trim(), status: 'error', error: error.code || 'DEVICE_RENAME_FAILED' }
-      }
-    }))
+    return Promise.all(
+      value.map(async (item) => {
+        if (
+          !item ||
+          typeof item.deviceId !== 'string' ||
+          !item.deviceId ||
+          item.deviceId.length > 128 ||
+          typeof item.name !== 'string' ||
+          !item.name.trim() ||
+          Buffer.byteLength(item.name.trim(), 'utf8') > 32
+        ) {
+          return {
+            deviceId: String(item?.deviceId || ''),
+            name: String(item?.name || ''),
+            status: 'error',
+            error: 'INVALID_PARAMS'
+          }
+        }
+        try {
+          await platformWorker.request(
+            'device.renameDiscovered',
+            {
+              deviceId: item.deviceId,
+              name: item.name.trim()
+            },
+            15000
+          )
+          return { deviceId: item.deviceId, name: item.name.trim(), status: 'ok' }
+        } catch (error) {
+          return {
+            deviceId: item.deviceId,
+            name: item.name.trim(),
+            status: 'error',
+            error: error.code || 'DEVICE_RENAME_FAILED'
+          }
+        }
+      })
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.settings.get, (event) => {
@@ -675,14 +729,19 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC_CHANNELS.match.start, async (event, input) => {
     assertMainSender(event)
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    const imported = importLegacyProject(
-      localDatabase,
-      getLegacyProjectRoot(),
-      input?.sourceKey
-    )
-    if (!imported.found) throw new Error('MATCH_PROJECT_NOT_FOUND')
+    const sourceKey = input?.sourceKey
+    let config = typeof sourceKey === 'string' ? competitionService.get(sourceKey) : null
+    if (!config) {
+      const imported = importLegacyProject(localDatabase, getLegacyProjectRoot(), sourceKey)
+      if (!imported.found) throw new Error('MATCH_PROJECT_NOT_FOUND')
+      config = competitionService.get(sourceKey)
+    }
+    if (!config) throw new Error('MATCH_PROJECT_NOT_FOUND')
     const result = await matchSession.start(input)
-    if (!localDatabase.markLegacyProjectLive(input.sourceKey)) {
+    if (
+      localDatabase.isLegacyCompetition(sourceKey) &&
+      !localDatabase.markLegacyProjectLive(sourceKey)
+    ) {
       await stopDeviceSessions('match-start-rollback')
       throw new Error('MATCH_PROJECT_NOT_FOUND')
     }
@@ -707,13 +766,10 @@ app.whenReady().then(async () => {
     matchSession.updatePlayback(playback)
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.match.setMediaBinding,
-    (event, groupName, contestantName, url) => {
-      assertMainSender(event)
-      return matchSession.setMediaBinding(groupName, contestantName, url)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.match.setMediaBinding, (event, groupName, contestantName, url) => {
+    assertMainSender(event)
+    return matchSession.setMediaBinding(groupName, contestantName, url)
+  })
 
   ipcMain.handle(IPC_CHANNELS.match.listScored, (event, sourceKey, groupName) => {
     assertMainSender(event)
@@ -741,20 +797,17 @@ app.whenReady().then(async () => {
     return stopDeviceSessions('score-page-exit')
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.replay.getLegacy,
-    (event, sourceKey, groupName, contestantName) => {
-      assertMainSender(event)
-      for (const value of [sourceKey, groupName, contestantName]) {
-        if (typeof value !== 'string' || !value || value.length > 256) {
-          throw new Error('IPC_INVALID_REPLAY_CONTEXT')
-        }
+  ipcMain.handle(IPC_CHANNELS.replay.getLegacy, (event, sourceKey, groupName, contestantName) => {
+    assertMainSender(event)
+    for (const value of [sourceKey, groupName, contestantName]) {
+      if (typeof value !== 'string' || !value || value.length > 256) {
+        throw new Error('IPC_INVALID_REPLAY_CONTEXT')
       }
-      if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-      if (!refreshLegacyProject(sourceKey)) throw new Error('LEGACY_IMPORT_FAILED')
-      return localDatabase.getLegacyReplay(sourceKey, groupName, contestantName)
     }
-  )
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    if (!refreshLegacyProject(sourceKey)) throw new Error('LEGACY_IMPORT_FAILED')
+    return localDatabase.getLegacyReplay(sourceKey, groupName, contestantName)
+  })
 
   ipcMain.handle(IPC_CHANNELS.reports.getLegacy, (event, sourceKey) => {
     assertMainSender(event)
@@ -766,23 +819,37 @@ app.whenReady().then(async () => {
     return localDatabase.getLegacyReport(sourceKey)
   })
 
-  ipcMain.handle(IPC_CHANNELS.projects.listLegacy, (event) => {
+  ipcMain.handle(IPC_CHANNELS.projects.create, (event, projectName, mode) => {
     assertMainSender(event)
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    const imported = importLegacyProjects(localDatabase, getLegacyProjectRoot())
-    if (imported.errors.length > 0) throw new Error('LEGACY_IMPORT_FAILED')
-    return localDatabase.listLegacyProjects()
+    return competitionService.create(projectName, mode)
   })
 
-  ipcMain.handle(IPC_CHANNELS.projects.deleteLegacy, (event, sourceKey) => {
+  ipcMain.handle(IPC_CHANNELS.projects.update, (event, sourceKey, input) => {
     assertMainSender(event)
-    if (typeof sourceKey !== 'string' || !sourceKey || sourceKey.length > 256) {
-      throw new Error('IPC_INVALID_PROJECT_SOURCE')
+    return competitionService.update(sourceKey, input)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projects.get, (event, sourceKey) => {
+    assertMainSender(event)
+    let config = competitionService.get(sourceKey)
+    if (!config && refreshLegacyProject(sourceKey)) config = competitionService.get(sourceKey)
+    return config
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projects.list, (event) => {
+    assertMainSender(event)
+    if (localDatabase) {
+      const imported = importLegacyProjects(localDatabase, getLegacyProjectRoot())
+      if (imported.errors.length > 0) {
+        logToFile(`Legacy import list errors: ${imported.errors.length}`)
+      }
     }
-    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    if (!localDatabase.getLegacyImportSummary(sourceKey)) return false
-    deleteLegacyProjectSource(getLegacyProjectRoot(), sourceKey)
-    return localDatabase.deleteLegacyProject(sourceKey)
+    return competitionService.list()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projects.delete, (event, sourceKey) => {
+    assertMainSender(event)
+    return competitionService.delete(sourceKey)
   })
 
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
@@ -858,7 +925,9 @@ app.whenReady().then(async () => {
 
     if (bounds) {
       if (bounds.x < -10000 || bounds.y < -10000) {
-        console.log('[Electron] Detected minimized/off-screen target, resetting overlay to primary display.')
+        console.log(
+          '[Electron] Detected minimized/off-screen target, resetting overlay to primary display.'
+        )
       } else {
         winX = Math.round(bounds.x)
         winY = Math.round(bounds.y)

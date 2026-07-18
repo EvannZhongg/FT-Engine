@@ -1,4 +1,4 @@
-import {defineStore} from 'pinia'
+import { defineStore } from 'pinia'
 import axios from 'axios'
 
 let stopMatchPromise = null
@@ -23,8 +23,8 @@ export const useRefereeStore = defineStore('referee', {
     referees: {},
     matchActive: false,
     matchStatus: initialMatchStatus(),
-    projectConfig: {name: '', mode: 'FREE', groups: []},
-    currentContext: {groupName: '', contestantName: ''},
+    projectConfig: { name: '', mode: 'FREE', groups: [] },
+    currentContext: { groupName: '', contestantName: '' },
     appSettings: {
       language: 'zh',
       reset_shortcut: 'Ctrl+G',
@@ -51,15 +51,15 @@ export const useRefereeStore = defineStore('referee', {
           this.apiBase = `http://127.0.0.1:${port}`
           console.log(`[Store] Configured API to port ${port}`)
         } catch (e) {
-          console.error("Failed to load server config", e)
+          console.error('Failed to load server config', e)
         }
       }
     },
 
     updateScore(payload) {
-      const {index, name, mode, score, status} = payload
+      const { index, name, mode, score, status } = payload
       if (!this.referees[index]) {
-        this.referees[index] = {name: `Referee ${index}`}
+        this.referees[index] = { name: `Referee ${index}` }
       }
       this.referees[index] = {
         ...this.referees[index],
@@ -82,7 +82,7 @@ export const useRefereeStore = defineStore('referee', {
       // 2. 更新项目配置中的名称 (如果已加载项目配置)
       // 这确保 SetupWizard 读取到更新后的值，并在 save/start 时包含新名称
       if (this.projectConfig && Array.isArray(this.projectConfig.referees)) {
-        const refConfig = this.projectConfig.referees.find(r => r.index === index)
+        const refConfig = this.projectConfig.referees.find((r) => r.index === index)
         if (refConfig) {
           refConfig.name = name
         }
@@ -94,9 +94,9 @@ export const useRefereeStore = defineStore('referee', {
       try {
         if (!window.ftEngine?.settings) throw new Error('LOCAL_SETTINGS_UNAVAILABLE')
         const settings = await window.ftEngine.settings.get()
-        this.appSettings = {...this.appSettings, ...settings}
+        this.appSettings = { ...this.appSettings, ...settings }
       } catch (e) {
-        console.error("Failed to fetch settings:", e)
+        console.error('Failed to fetch settings:', e)
       }
     },
 
@@ -109,14 +109,14 @@ export const useRefereeStore = defineStore('referee', {
         return true
       } catch (e) {
         this.appSettings[key] = previous
-        console.error("Failed to update setting:", e)
+        console.error('Failed to update setting:', e)
         return false
       }
     },
 
     // 【新增】保存设备备注
     async saveDeviceRemark(address, remark) {
-      const remarks = {...(this.appSettings.device_remarks || {})}
+      const remarks = { ...(this.appSettings.device_remarks || {}) }
       remarks[address] = remark
       const saved = await this.updateSetting('device_remarks', remarks)
       if (!saved) throw new Error('DEVICE_REMARK_SAVE_FAILED')
@@ -130,23 +130,25 @@ export const useRefereeStore = defineStore('referee', {
 
     async updateProjectPreference(dirName, key, value) {
       if (!dirName) return
-      const preferences = {...(this.appSettings.project_preferences || {})}
-      preferences[dirName] = {...(preferences[dirName] || {}), [key]: value}
+      const preferences = { ...(this.appSettings.project_preferences || {}) }
+      preferences[dirName] = { ...(preferences[dirName] || {}), [key]: value }
       return this.updateSetting('project_preferences', preferences)
     },
 
     async renameDevices(devices) {
       try {
         if (window.ftEngine?.devices) {
-          return await window.ftEngine.devices.rename(devices.map((device) => ({
-            deviceId: device.address,
-            name: device.name
-          })))
+          return await window.ftEngine.devices.rename(
+            devices.map((device) => ({
+              deviceId: device.address,
+              name: device.name
+            }))
+          )
         }
-        const res = await axios.post(`${this.apiBase}/api/devices/rename`, {devices})
+        const res = await axios.post(`${this.apiBase}/api/devices/rename`, { devices })
         return res.data.results || []
       } catch (e) {
-        console.error("Rename devices failed:", e)
+        console.error('Rename devices failed:', e)
         throw e
       }
     },
@@ -155,22 +157,21 @@ export const useRefereeStore = defineStore('referee', {
 
     // 【新增】清理本地配置 (用于 New Match)
     clearLocalConfig() {
-      this.projectConfig = {name: '', mode: 'FREE', groups: []}
-      this.currentContext = {groupName: '', contestantName: ''}
+      this.projectConfig = { name: '', mode: 'FREE', groups: [] }
+      this.currentContext = { groupName: '', contestantName: '' }
       this.scoredPlayers = new Set()
       this.referees = {}
-      // 注意：不重置 appSettings 和 ws 连接
+      // App settings are independent from the active competition.
     },
 
     // 创建项目
     async createProject(name, mode) {
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/create`, {name, mode})
-        // 后端返回初始配置
-        this.projectConfig = res.data.config
-        return res.data
+        if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
+        this.projectConfig = await window.ftEngine.projects.create(name, mode)
+        return { status: 'ok', config: this.projectConfig }
       } catch (e) {
-        console.error("Create Project Failed:", e)
+        console.error('Create Project Failed:', e)
         throw e
       }
     },
@@ -178,10 +179,14 @@ export const useRefereeStore = defineStore('referee', {
     // 更新组别信息 (赛事模式编辑完组别后调用)
     async updateGroups(groups) {
       try {
-        await axios.post(`${this.apiBase}/api/project/update_groups`, {groups})
-        this.projectConfig.groups = groups
+        if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
+        this.projectConfig = await window.ftEngine.projects.update(this.projectConfig.source_key, {
+          projectName: this.projectConfig.project_name,
+          mode: this.projectConfig.mode,
+          groups
+        })
       } catch (e) {
-        console.error("Update Groups Failed:", e)
+        console.error('Update Groups Failed:', e)
         throw e
       }
     },
@@ -196,7 +201,7 @@ export const useRefereeStore = defineStore('referee', {
         this.currentContext.groupName = groupName
         this.currentContext.contestantName = contestantName
       } catch (e) {
-        console.error("Set Context Failed:", e)
+        console.error('Set Context Failed:', e)
         throw e
       }
     },
@@ -211,14 +216,14 @@ export const useRefereeStore = defineStore('referee', {
           remarks: this.appSettings.device_remarks || {}
         })
         if (result.errors?.length) {
-          console.warn("Scan warnings:", result.errors)
+          console.warn('Scan warnings:', result.errors)
           if (!result.devices?.length) {
-            throw new Error(result.errors.map(error => error.code).join(', '))
+            throw new Error(result.errors.map((error) => error.code).join(', '))
           }
         }
         return result.devices || []
       } catch (e) {
-        console.error("Scan failed:", e)
+        console.error('Scan failed:', e)
         throw e
       }
     },
@@ -229,12 +234,15 @@ export const useRefereeStore = defineStore('referee', {
         if (stopMatchPromise) await stopMatchPromise
         // 重置本地状态
         this.referees = {}
-        config.referees.forEach(r => {
+        config.referees.forEach((r) => {
           this.referees[r.index] = {
             name: r.name || `Referee ${r.index}`,
             mode: r.mode, // 【新增】保存模式，用于 UI 判断是否显示扣分
-            total: 0, plus: 0, minus: 0, penalty: 0,
-            status: {pri: 'connecting', sec: r.mode === 'DUAL' ? 'connecting' : 'n/a'}
+            total: 0,
+            plus: 0,
+            minus: 0,
+            penalty: 0,
+            status: { pri: 'connecting', sec: r.mode === 'DUAL' ? 'connecting' : 'n/a' }
           }
         })
         if (window.ftEngine?.match) {
@@ -256,7 +264,7 @@ export const useRefereeStore = defineStore('referee', {
           throw new Error('LOCAL_MATCH_UNAVAILABLE')
         }
       } catch (e) {
-        console.error("Setup failed:", e)
+        console.error('Setup failed:', e)
         await this.stopMatch()
         throw e
       }
@@ -275,7 +283,7 @@ export const useRefereeStore = defineStore('referee', {
           this.referees[key].minus = 0
         }
       } catch (e) {
-        console.error("Reset failed:", e)
+        console.error('Reset failed:', e)
         throw e
       }
     },
@@ -290,24 +298,24 @@ export const useRefereeStore = defineStore('referee', {
           } else {
             result = {
               ok: true,
-              worker: {status: 'skipped'},
-              legacy: {status: 'skipped'}
+              worker: { status: 'skipped' },
+              legacy: { status: 'skipped' }
             }
           }
-          if (!result.ok) console.warn("Some device owners did not stop cleanly", result)
+          if (!result.ok) console.warn('Some device owners did not stop cleanly', result)
           return result
         } catch (e) {
-          console.error("Stop match failed:", e)
+          console.error('Stop match failed:', e)
           return {
             ok: false,
-            worker: {status: 'error', error: 'MATCH_STOP_FAILED'},
-            legacy: {status: 'error', error: 'MATCH_STOP_FAILED'}
+            worker: { status: 'error', error: 'MATCH_STOP_FAILED' },
+            legacy: { status: 'error', error: 'MATCH_STOP_FAILED' }
           }
         } finally {
           this.matchActive = false
           if (!window.ftEngine?.match) this.matchStatus = initialMatchStatus()
           this.referees = {}
-          this.currentContext = {groupName: '', contestantName: ''}
+          this.currentContext = { groupName: '', contestantName: '' }
         }
       })().finally(() => {
         if (stopMatchPromise === pending) stopMatchPromise = null
@@ -325,7 +333,7 @@ export const useRefereeStore = defineStore('referee', {
         const result = await window.ftEngine.platform.listWindows()
         return result.windows || []
       } catch (e) {
-        console.error("Failed to fetch windows:", e)
+        console.error('Failed to fetch windows:', e)
         return []
       }
     },
@@ -333,42 +341,34 @@ export const useRefereeStore = defineStore('referee', {
     // 获取特定窗口坐标
     async getWindowBounds(windowId) {
       try {
-        if (!window.ftEngine?.platform) return {found: false, bounds: null}
+        if (!window.ftEngine?.platform) return { found: false, bounds: null }
         return await window.ftEngine.platform.getWindowBounds(windowId)
       } catch {
-        return {found: false, bounds: null}
+        return { found: false, bounds: null }
       }
     },
 
     // --- 7. 历史记录与报表 ---
 
     async fetchHistoryProjects() {
-      if (window.ftEngine?.projects) {
-        try {
-          return await window.ftEngine.projects.listLegacy()
-        } catch (e) {
-          console.warn("SQLite project list unavailable, using legacy backend", e)
-        }
-      }
       try {
-        const res = await axios.get(`${this.apiBase}/api/projects/list`)
-        return res.data.projects || []
+        if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
+        return await window.ftEngine.projects.list()
       } catch (e) {
-        console.error("Fetch projects failed", e)
+        console.error('Fetch projects failed', e)
         return []
       }
     },
 
     async loadProject(dirName) {
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/load`, {dir_name: dirName})
-        if (res.data.status === 'ok') {
-          this.projectConfig = res.data.config
-          return true
-        }
-        return false
+        if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
+        const config = await window.ftEngine.projects.get(dirName)
+        if (!config) return false
+        this.projectConfig = config
+        return true
       } catch (e) {
-        console.error("Load project failed", e)
+        console.error('Load project failed', e)
         return false
       }
     },
@@ -379,14 +379,14 @@ export const useRefereeStore = defineStore('referee', {
           const report = await window.ftEngine.reports.getLegacy(dirName)
           if (report) return report
         } catch (e) {
-          console.warn("SQLite report unavailable, using legacy backend", e)
+          console.warn('SQLite report unavailable, using legacy backend', e)
         }
       }
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/report`, {dir_name: dirName})
+        const res = await axios.post(`${this.apiBase}/api/project/report`, { dir_name: dirName })
         return res.data
       } catch (e) {
-        console.error("Fetch report failed", e)
+        console.error('Fetch report failed', e)
         return null
       }
     },
@@ -405,7 +405,8 @@ export const useRefereeStore = defineStore('referee', {
       })
       matchListenersConnected = true
       this.matchStatus = await window.ftEngine.match.getStatus()
-      this.matchActive = this.matchStatus.state === 'starting' || this.matchStatus.state === 'active'
+      this.matchActive =
+        this.matchStatus.state === 'starting' || this.matchStatus.state === 'active'
     },
 
     disconnectMatchEvents() {
@@ -420,11 +421,7 @@ export const useRefereeStore = defineStore('referee', {
 
     async saveMediaBinding(groupName, contestantName, url) {
       if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
-      const binding = await window.ftEngine.match.setMediaBinding(
-        groupName,
-        contestantName,
-        url
-      )
+      const binding = await window.ftEngine.match.setMediaBinding(groupName, contestantName, url)
       if (!this.projectConfig.media) this.projectConfig.media = {}
       if (!this.projectConfig.media[groupName]) this.projectConfig.media[groupName] = {}
       this.projectConfig.media[groupName][contestantName] = binding
@@ -475,12 +472,12 @@ export const useRefereeStore = defineStore('referee', {
           this.scoredPlayers = new Set(scored)
           return
         }
-        const res = await axios.post(`${this.apiBase}/api/group/status`, {group: groupName})
+        const res = await axios.post(`${this.apiBase}/api/group/status`, { group: groupName })
         if (res.data.scored) {
           this.scoredPlayers = new Set(res.data.scored)
         }
       } catch (e) {
-        console.error("Fetch status failed", e)
+        console.error('Fetch status failed', e)
       }
     },
 
@@ -503,47 +500,36 @@ export const useRefereeStore = defineStore('referee', {
     },
     // --- 新增：删除项目 ---
     async deleteProject(dirName) {
-      let deletedViaIpc = false
       try {
-        let deleted = false
-        if (window.ftEngine?.projects) {
-          try {
-            deleted = await window.ftEngine.projects.deleteLegacy(dirName)
-            deletedViaIpc = true
-          } catch (e) {
-            console.warn("SQLite project delete unavailable, using legacy backend", e)
-          }
-        }
-        if (!deletedViaIpc) {
-          const res = await axios.post(`${this.apiBase}/api/project/delete`, {dir_name: dirName})
-          deleted = res.data.status === 'ok'
-        }
+        if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
+        const deleted = await window.ftEngine.projects.delete(dirName)
         if (deleted && this.appSettings.project_preferences) {
-          const preferences = {...this.appSettings.project_preferences}
+          const preferences = { ...this.appSettings.project_preferences }
           delete preferences[dirName]
-          const preferencesUpdated = await this.updateSetting(
-            'project_preferences',
-            preferences
-          )
+          const preferencesUpdated = await this.updateSetting('project_preferences', preferences)
           if (!preferencesUpdated) {
-            console.error("Project deleted but preference cleanup failed")
+            console.error('Project deleted but preference cleanup failed')
           }
         }
         return deleted
       } catch (e) {
-        console.error("Delete project failed", e)
+        console.error('Delete project failed', e)
         return false
       }
     },
     async exportScoreDetails(groupName, players, options) {
       try {
-        const response = await axios.post(`${this.apiBase}/api/export/details`, {
-          group: groupName,
-          players: players,
-          options: options
-        }, {
-          responseType: 'blob' // 关键：接收二进制流
-        })
+        const response = await axios.post(
+          `${this.apiBase}/api/export/details`,
+          {
+            group: groupName,
+            players: players,
+            options: options
+          },
+          {
+            responseType: 'blob' // 关键：接收二进制流
+          }
+        )
 
         // 触发浏览器下载
         const url = window.URL.createObjectURL(new Blob([response.data]))
@@ -565,7 +551,7 @@ export const useRefereeStore = defineStore('referee', {
 
         return true
       } catch (e) {
-        console.error("Export failed", e)
+        console.error('Export failed', e)
         return false
       }
     }

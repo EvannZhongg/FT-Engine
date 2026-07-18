@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -8,6 +8,17 @@ import {
   normalizeAppSetting,
   type AppSettings
 } from '../application/settings/app-settings.mts'
+import {
+  hasSameCompetitionStructure,
+  type CompetitionCreateInput,
+  type CompetitionUpdateInput
+} from '../application/competitions/competition-service.mts'
+import type {
+  CompetitionConfig,
+  CompetitionGroupConfig,
+  CompetitionListItem,
+  CompetitionRefereeConfig
+} from '../../shared/contracts/competition.mts'
 
 export const LATEST_SCHEMA_VERSION = 5
 
@@ -479,6 +490,192 @@ export class LocalDatabase {
     return this.getAppSettings()
   }
 
+  createCompetition(input: CompetitionCreateInput): CompetitionConfig {
+    const database = this.requireDatabase()
+    const competitionId = randomUUID()
+    const stageId = randomUUID()
+    const now = new Date().toISOString()
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      database
+        .prepare(
+          `
+        INSERT INTO competitions (id, name, mode, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'draft', ?, ?)
+      `
+        )
+        .run(competitionId, input.projectName, input.mode, now, now)
+      database
+        .prepare(
+          `
+        INSERT INTO stages (id, competition_id, name, position, status, attempts)
+        VALUES (?, ?, 'Main', 0, 'draft', 1)
+      `
+        )
+        .run(stageId, competitionId)
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+    return this.requireCompetitionConfig(competitionId)
+  }
+
+  updateCompetition(sourceKey: string, input: CompetitionUpdateInput): CompetitionConfig {
+    const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) throw new Error('COMPETITION_NOT_FOUND')
+    const current = this.requireCompetitionConfig(sourceKey)
+    const hasEvents = this.countCompetitionEvents(database, source.competitionId) > 0
+    if (hasEvents && !hasSameCompetitionStructure(current, input)) {
+      throw new Error('COMPETITION_STRUCTURE_LOCKED')
+    }
+
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      database
+        .prepare(
+          `
+        UPDATE competitions SET name = ?, mode = ?, updated_at = ? WHERE id = ?
+      `
+        )
+        .run(input.projectName, input.mode, new Date().toISOString(), source.competitionId)
+      if (hasEvents) {
+        this.updateCompetitionBindings(database, source.competitionId, sourceKey, input.groups)
+      } else {
+        this.replaceCompetitionGraph(database, source.competitionId, sourceKey, input.groups)
+      }
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+    return this.requireCompetitionConfig(sourceKey)
+  }
+
+  getCompetitionConfig(sourceKey: string): CompetitionConfig | null {
+    const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return null
+    const stage = database
+      .prepare(
+        `
+      SELECT id FROM stages WHERE competition_id = ? ORDER BY position LIMIT 1
+    `
+      )
+      .get(source.competitionId) as { id: string } | undefined
+    if (!stage) return null
+
+    const groupRows = database
+      .prepare(
+        `
+      SELECT id, name, position, legacy_ref_count
+      FROM competition_groups WHERE stage_id = ? ORDER BY position
+    `
+      )
+      .all(stage.id) as Array<{
+      id: string
+      name: string
+      position: number
+      legacy_ref_count: number
+    }>
+    const groups = groupRows.map((group) => {
+      const players = database
+        .prepare(
+          `
+        SELECT name FROM contestants WHERE group_id = ? ORDER BY position
+      `
+        )
+        .all(group.id) as Array<{ name: string }>
+      const referees = database
+        .prepare(
+          `
+        SELECT r.source_referee_index, r.name, r.mode,
+          MAX(CASE WHEN db.role = 'primary' THEN db.device_id ELSE '' END) AS pri_addr,
+          MAX(CASE WHEN db.role = 'secondary' THEN db.device_id ELSE '' END) AS sec_addr
+        FROM referees r
+        LEFT JOIN device_bindings db ON db.referee_id = r.id
+        WHERE r.group_id = ?
+        GROUP BY r.id
+        ORDER BY r.source_referee_index
+      `
+        )
+        .all(group.id) as Array<Record<string, string | number>>
+      return {
+        name: group.name,
+        refCount: Number(group.legacy_ref_count),
+        players: players.map((player) => player.name),
+        referees: referees.map((referee) => ({
+          index: Number(referee.source_referee_index),
+          name: String(referee.name),
+          mode: referee.mode === 'DUAL' ? ('DUAL' as const) : ('SINGLE' as const),
+          pri_addr: String(referee.pri_addr || ''),
+          sec_addr: String(referee.sec_addr || '')
+        }))
+      }
+    })
+    const mediaRows = database
+      .prepare(
+        `
+      SELECT g.name AS group_name, p.name AS contestant_name,
+        mb.provider, mb.media_id, mb.canonical_url
+      FROM competition_groups g
+      JOIN contestants p ON p.group_id = g.id
+      JOIN media_bindings mb ON mb.contestant_id = p.id
+      WHERE g.stage_id = ?
+    `
+      )
+      .all(stage.id) as Array<Record<string, string>>
+    const media: CompetitionConfig['media'] = {}
+    for (const row of mediaRows) {
+      media[row.group_name] ??= {}
+      media[row.group_name][row.contestant_name] = {
+        provider: row.provider,
+        video_id: row.media_id,
+        canonical_url: row.canonical_url
+      }
+    }
+    return {
+      project_name: source.projectName,
+      mode: source.mode,
+      created_at: source.createdAt,
+      source_key: source.sourceKey,
+      groups,
+      media
+    }
+  }
+
+  listCompetitionProjects(): CompetitionListItem[] {
+    const rows = this.requireDatabase()
+      .prepare(
+        `
+      SELECT COALESCE(li.source_key, c.id) AS source_key
+      FROM competitions c
+      LEFT JOIN legacy_imports li ON li.competition_id = c.id
+      ORDER BY c.updated_at DESC, c.created_at DESC
+    `
+      )
+      .all() as Array<{ source_key: string }>
+    return rows.flatMap((row) => {
+      const config = this.getCompetitionConfig(row.source_key)
+      return config ? [{ ...config, dir_name: config.source_key }] : []
+    })
+  }
+
+  deleteCompetition(sourceKey: string): boolean {
+    const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return false
+    const result = database
+      .prepare('DELETE FROM competitions WHERE id = ?')
+      .run(source.competitionId)
+    return Number(result.changes) === 1
+  }
+
+  isLegacyCompetition(sourceKey: string): boolean {
+    return this.resolveCompetitionSourceFrom(this.requireDatabase(), sourceKey)?.isLegacy ?? false
+  }
+
   getScoreEvents(): StoredScoreEvent[] {
     const rows = this.requireDatabase()
       .prepare('SELECT raw_payload FROM score_events ORDER BY system_time, event_id')
@@ -703,21 +900,22 @@ export class LocalDatabase {
     contestantName: string,
     refereeIndex: number
   ): LegacyEventContext | null {
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return null
     const row = database
       .prepare(
         `
       SELECT ms.id AS match_session_id, r.id AS referee_id
-      FROM legacy_imports li
-      JOIN stages s ON s.competition_id = li.competition_id
+      FROM stages s
       JOIN competition_groups g ON g.stage_id = s.id
       JOIN contestants p ON p.group_id = g.id
       JOIN match_sessions ms ON ms.contestant_id = p.id AND ms.attempt_number = 1
       JOIN referees r ON r.group_id = g.id AND r.source_referee_index = ?
-      WHERE li.source_key = ? AND g.name = ? AND p.name = ?
+      WHERE s.competition_id = ? AND g.name = ? AND p.name = ?
       LIMIT 1
     `
       )
-      .get(refereeIndex, sourceKey, groupName, contestantName) as
+      .get(refereeIndex, source.competitionId, groupName, contestantName) as
       | {
           match_session_id: string
           referee_id: string
@@ -825,20 +1023,32 @@ export class LocalDatabase {
       contestantName,
       refereeIndex
     )
-    if (existing) return existing
+    if (existing) {
+      database
+        .prepare(
+          `
+        UPDATE match_sessions
+        SET status = 'active', started_at = COALESCE(started_at, ?)
+        WHERE id = ?
+      `
+        )
+        .run(new Date().toISOString(), existing.matchSessionId)
+      return existing
+    }
 
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return null
     const stage = database
       .prepare(
         `
         SELECT s.id
-        FROM legacy_imports li
-        JOIN stages s ON s.competition_id = li.competition_id
-        WHERE li.source_key = ?
+        FROM stages s
+        WHERE s.competition_id = ?
         ORDER BY s.position
         LIMIT 1
       `
       )
-      .get(sourceKey) as { id: string } | undefined
+      .get(source.competitionId) as { id: string } | undefined
     if (!stage) return null
 
     let group = database
@@ -957,19 +1167,21 @@ export class LocalDatabase {
     contestantName: string,
     binding: { provider: string; mediaId: string; canonicalUrl: string }
   ): boolean {
-    const contestant = this.requireDatabase()
+    const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return false
+    const contestant = database
       .prepare(
         `
       SELECT p.id
-      FROM legacy_imports li
-      JOIN stages s ON s.competition_id = li.competition_id
+      FROM stages s
       JOIN competition_groups g ON g.stage_id = s.id
       JOIN contestants p ON p.group_id = g.id
-      WHERE li.source_key = ? AND g.name = ? AND p.name = ?
+      WHERE s.competition_id = ? AND g.name = ? AND p.name = ?
       LIMIT 1
     `
       )
-      .get(sourceKey, groupName, contestantName) as { id: string } | undefined
+      .get(source.competitionId, groupName, contestantName) as { id: string } | undefined
     if (!contestant) return false
     this.requireDatabase()
       .prepare(
@@ -992,21 +1204,23 @@ export class LocalDatabase {
   }
 
   listLegacyScoredContestants(sourceKey: string, groupName: string): string[] {
-    const rows = this.requireDatabase()
+    const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return []
+    const rows = database
       .prepare(
         `
       SELECT DISTINCT p.name, p.position
-      FROM legacy_imports li
-      JOIN stages s ON s.competition_id = li.competition_id
+      FROM stages s
       JOIN competition_groups g ON g.stage_id = s.id
       JOIN contestants p ON p.group_id = g.id
       JOIN match_sessions ms ON ms.contestant_id = p.id
       JOIN score_events e ON e.match_session_id = ms.id
-      WHERE li.source_key = ? AND g.name = ?
+      WHERE s.competition_id = ? AND g.name = ?
       ORDER BY p.position
     `
       )
-      .all(sourceKey, groupName) as Array<{ name: string }>
+      .all(source.competitionId, groupName) as Array<{ name: string }>
     return rows.map((row) => row.name)
   }
 
@@ -1024,19 +1238,20 @@ export class LocalDatabase {
     events: LegacyReplayEvent[]
   } | null {
     const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return null
     const contestant = database
       .prepare(
         `
       SELECT p.id
-      FROM legacy_imports li
-      JOIN stages s ON s.competition_id = li.competition_id
+      FROM stages s
       JOIN competition_groups g ON g.stage_id = s.id
       JOIN contestants p ON p.group_id = g.id
-      WHERE li.source_key = ? AND g.name = ? AND p.name = ?
+      WHERE s.competition_id = ? AND g.name = ? AND p.name = ?
       LIMIT 1
     `
       )
-      .get(sourceKey, groupName, contestantName) as { id: string } | undefined
+      .get(source.competitionId, groupName, contestantName) as { id: string } | undefined
     if (!contestant) return null
 
     const bindingRow = database
@@ -1120,24 +1335,14 @@ export class LocalDatabase {
 
   getLegacyReport(sourceKey: string): LegacyReport | null {
     const database = this.requireDatabase()
-    const competition = database
-      .prepare(
-        `
-      SELECT c.id, c.name, c.mode, c.created_at
-      FROM legacy_imports li
-      JOIN competitions c ON c.id = li.competition_id
-      WHERE li.source_key = ?
-    `
-      )
-      .get(sourceKey) as
-      | {
-          id: string
-          name: string
-          mode: string
-          created_at: string
-        }
-      | undefined
-    if (!competition) return null
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return null
+    const competition = {
+      id: source.competitionId,
+      name: source.projectName,
+      mode: source.mode,
+      created_at: source.createdAt
+    }
 
     const groupRows = database
       .prepare(
@@ -1303,6 +1508,214 @@ export class LocalDatabase {
     if (!row) return false
     const result = database.prepare('DELETE FROM competitions WHERE id = ?').run(row.competition_id)
     return Number(result.changes) === 1
+  }
+
+  private resolveCompetitionSourceFrom(
+    database: DatabaseSync,
+    sourceKey: string
+  ): {
+    competitionId: string
+    sourceKey: string
+    projectName: string
+    mode: 'FREE' | 'TOURNAMENT'
+    createdAt: string
+    isLegacy: boolean
+  } | null {
+    const row = database
+      .prepare(
+        `
+      SELECT c.id, c.name, c.mode, c.created_at, li.source_key
+      FROM competitions c
+      LEFT JOIN legacy_imports li ON li.competition_id = c.id
+      WHERE li.source_key = ? OR c.id = ?
+      ORDER BY CASE WHEN li.source_key = ? THEN 0 ELSE 1 END
+      LIMIT 1
+    `
+      )
+      .get(sourceKey, sourceKey, sourceKey) as
+      | {
+          id: string
+          name: string
+          mode: string
+          created_at: string
+          source_key: string | null
+        }
+      | undefined
+    if (!row) return null
+    return {
+      competitionId: row.id,
+      sourceKey: row.source_key || row.id,
+      projectName: row.name,
+      mode: row.mode === 'TOURNAMENT' ? 'TOURNAMENT' : 'FREE',
+      createdAt: row.created_at,
+      isLegacy: Boolean(row.source_key)
+    }
+  }
+
+  private requireCompetitionConfig(sourceKey: string): CompetitionConfig {
+    const config = this.getCompetitionConfig(sourceKey)
+    if (!config) throw new Error('COMPETITION_NOT_FOUND')
+    return config
+  }
+
+  private countCompetitionEvents(database: DatabaseSync, competitionId: string): number {
+    const row = database
+      .prepare(
+        `
+      SELECT COUNT(*) AS count
+      FROM score_events e
+      JOIN match_sessions ms ON ms.id = e.match_session_id
+      JOIN contestants p ON p.id = ms.contestant_id
+      JOIN competition_groups g ON g.id = p.group_id
+      JOIN stages s ON s.id = g.stage_id
+      WHERE s.competition_id = ?
+    `
+      )
+      .get(competitionId) as { count: number }
+    return Number(row.count)
+  }
+
+  private replaceCompetitionGraph(
+    database: DatabaseSync,
+    competitionId: string,
+    sourceKey: string,
+    groups: CompetitionGroupConfig[]
+  ): void {
+    const stage = database
+      .prepare(
+        `
+      SELECT id FROM stages WHERE competition_id = ? ORDER BY position LIMIT 1
+    `
+      )
+      .get(competitionId) as { id: string } | undefined
+    if (!stage) throw new Error('COMPETITION_NOT_FOUND')
+
+    database.prepare('DELETE FROM referees WHERE stage_id = ?').run(stage.id)
+    database.prepare('DELETE FROM competition_groups WHERE stage_id = ?').run(stage.id)
+    groups.forEach((group, groupPosition) => {
+      const groupId = stableDatabaseId(sourceKey, 'group', String(groupPosition), group.name)
+      database
+        .prepare(
+          `
+        INSERT INTO competition_groups (id, stage_id, name, position, legacy_ref_count)
+        VALUES (?, ?, ?, ?, ?)
+      `
+        )
+        .run(groupId, stage.id, group.name, groupPosition, group.refCount)
+      group.players.forEach((playerName, playerPosition) => {
+        const contestantId = stableDatabaseId(
+          sourceKey,
+          groupId,
+          'contestant',
+          String(playerPosition),
+          playerName
+        )
+        database
+          .prepare(
+            `
+          INSERT INTO contestants (id, group_id, name, position, status)
+          VALUES (?, ?, ?, ?, 'pending')
+        `
+          )
+          .run(contestantId, groupId, playerName, playerPosition)
+        database
+          .prepare(
+            `
+          INSERT INTO match_sessions (
+            id, contestant_id, attempt_number, status, rule_version
+          ) VALUES (?, ?, 1, 'pending', 'route-b-v1')
+        `
+          )
+          .run(stableDatabaseId(sourceKey, contestantId, 'session', '1'), contestantId)
+      })
+      group.referees.forEach((referee) => {
+        const refereeId = stableDatabaseId(sourceKey, groupId, 'referee', String(referee.index))
+        database
+          .prepare(
+            `
+          INSERT INTO referees (
+            id, stage_id, referee_index, name, mode, group_id, source_referee_index
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `
+          )
+          .run(
+            refereeId,
+            stage.id,
+            groupPosition * 100000 + referee.index,
+            referee.name,
+            referee.mode,
+            groupId,
+            referee.index
+          )
+        this.writeDeviceBindings(database, sourceKey, refereeId, referee)
+      })
+    })
+  }
+
+  private updateCompetitionBindings(
+    database: DatabaseSync,
+    competitionId: string,
+    sourceKey: string,
+    groups: CompetitionGroupConfig[]
+  ): void {
+    for (const group of groups) {
+      const row = database
+        .prepare(
+          `
+        SELECT g.id
+        FROM stages s
+        JOIN competition_groups g ON g.stage_id = s.id
+        WHERE s.competition_id = ? AND g.name = ?
+        LIMIT 1
+      `
+        )
+        .get(competitionId, group.name) as { id: string } | undefined
+      if (!row) throw new Error('COMPETITION_STRUCTURE_LOCKED')
+      for (const referee of group.referees) {
+        const stored = database
+          .prepare(
+            `
+          SELECT id FROM referees
+          WHERE group_id = ? AND source_referee_index = ?
+          LIMIT 1
+        `
+          )
+          .get(row.id, referee.index) as { id: string } | undefined
+        if (!stored) throw new Error('COMPETITION_STRUCTURE_LOCKED')
+        database.prepare('DELETE FROM device_bindings WHERE referee_id = ?').run(stored.id)
+        this.writeDeviceBindings(database, sourceKey, stored.id, referee)
+      }
+    }
+  }
+
+  private writeDeviceBindings(
+    database: DatabaseSync,
+    sourceKey: string,
+    refereeId: string,
+    referee: CompetitionRefereeConfig
+  ): void {
+    for (const [role, deviceId] of [
+      ['primary', referee.pri_addr],
+      ['secondary', referee.mode === 'DUAL' ? referee.sec_addr : '']
+    ] as const) {
+      if (!deviceId) continue
+      const transport =
+        deviceId.startsWith('usb:') || deviceId.startsWith('usbport:') ? 'USB' : 'BLE'
+      database
+        .prepare(
+          `
+        INSERT INTO device_bindings (id, referee_id, role, device_id, transport)
+        VALUES (?, ?, ?, ?, ?)
+      `
+        )
+        .run(
+          stableDatabaseId(sourceKey, refereeId, 'device', role),
+          refereeId,
+          role,
+          deviceId,
+          transport
+        )
+    }
   }
 
   private applyMigrations(currentVersion: number): void {

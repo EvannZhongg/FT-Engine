@@ -7,6 +7,7 @@
 - Python Platform Worker 只负责 BLE、USB 和系统窗口等本机 I/O，不聚合业务分数。
 - Django 是独立用户/社区服务；不可用时不影响本地创建赛事、计分、复盘和导出。
 - CSV、SRT、XLSX 和 ZIP 都是导出，不参与实时状态恢复。
+- 不兼容旧项目目录、旧 CSV 或旧 SQLite；重构允许清空本地数据并从新 Schema 开始。
 - 平台差异只存在于适配层；领域对象不读取操作系统名称。
 
 ## 2. 目标运行拓扑
@@ -100,10 +101,6 @@ services/community/
    ├─ profiles/
    ├─ sessions/
    └─ health/
-
-compat/legacy_import/
-├─ importer.mts
-└─ fixtures/
 ~~~
 
 ## 4. Electron Main 模块边界
@@ -131,28 +128,16 @@ compat/legacy_import/
 - 原始 `ScoreEvent` 追加后不可修改；纠错通过作废会话或追加校正事件完成。
 - Repository 返回领域对象或明确 DTO，不向 Renderer 暴露 SQL 行结构。
 
-## 6. `server.py` 过渡拆分
+## 6. Legacy 删除边界
 
-在完全移除 FastAPI 前，`server.py` 只能保留启动入口：
+`server.py` 不再拆分成新的 Python Web 服务。SQLite 导出补齐后，直接删除：
 
-~~~text
-legacy_backend/
-├─ app.py                 # create_app / lifespan
-├─ routes/
-│  ├─ settings.py
-│  ├─ projects.py
-│  ├─ media.py
-│  └─ exports.py
-├─ services/
-│  ├─ project_service.py
-│  └─ export_service.py
-└─ infrastructure/
-   └─ legacy_storage.py
+- FastAPI/Uvicorn 进程、路由和 backend 打包产物。
+- Python 设备、计分、媒体锚点、项目存储和导出实现。
+- legacy importer、shadow stdout event 和 `match_data` 扫描。
+- 旧 JSON/CSV/SQLite migration、兼容 DTO 与相应测试 fixture。
 
-server.py                 # load config + uvicorn.run(create_app())
-~~~
-
-不要为已经迁入 Worker/Main 的 BLE、USB、计分或窗口功能建立新的 legacy 模块。它们应从 `server.py` 删除，而不是永久搬家。拆分只服务于降低剩余兼容代码风险。
+唯一保留的 Python 运行单元是 Platform Worker；它只通过 JSONL stdio 暴露本机 I/O，不提供 HTTP 服务。
 
 ## 7. 依赖方向
 
@@ -170,7 +155,7 @@ Platform Worker -> platform adapters
 
 - Electron 不启动 FastAPI/Uvicorn，不监听本地 HTTP/WebSocket 端口。
 - Renderer 中没有 Axios、原生 WebSocket、文件系统和平台判断。
-- 新赛事不创建 legacy `config.json` 或计分 CSV；旧项目只经 importer 读取。
+- 应用不读取或迁移 legacy `config.json`、计分 CSV、`match_data` 或旧 SQLite。
 - 活动设备只由一个 Platform Worker 实例持有。
 - SQLite 可独立完成创建、计分、崩溃恢复、复盘和导出。
 - Django/PostgreSQL 下线时，本地全流程保持可用。

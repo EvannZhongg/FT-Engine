@@ -10,8 +10,9 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 - Vue Renderer 的窗口、Overlay、设备、实时比赛和主要历史读取使用受控 IPC。
 - Electron Main 中的 `MatchSessionService` 已接入 Platform Worker、TypeScript 计分域和 SQLite 原子实时事件写入，并向计分页持续发布保存、Worker 和媒体状态。
-- Legacy FastAPI 仍负责项目创建/加载、组别和导出；设置、设备备注、媒体绑定与播放锚点已使用 SQLite/Main IPC；其中硬件、媒体与 WebSocket 路由仍存在，但 Electron 实时计分已无调用点。
-- SQLite schema v5 已支持迁移备份、legacy 导入、live-managed 项目、历史读取和实时事件，但新项目仍依赖 legacy 目录作为启动上下文。
+- 当前工作树的 `CompetitionService` 已将项目创建、配置、继续、列表和删除迁入 Main/SQLite；新项目不再创建 legacy 目录。
+- Legacy FastAPI 当前主要承担 CSV/SRT/ZIP 导出和少量 REST fallback；其他硬件、项目、媒体和 WebSocket 路由已无 Electron 主路径调用点。
+- SQLite schema v5 已支持原生项目、历史读取和原子实时事件；多阶段和 SQLite 原生导出尚未完成。后续不迁移任何旧数据，legacy runtime/importer 将直接删除。
 
 实际调用链见 [当前架构](docs/ARCHITECTURE_CURRENT_zh.md)，下一步见 [路线 B 剩余重构计划](docs/REFACTOR_PLAN_ROUTE_B_zh.md)。不要依据目标文档假定 localhost backend 已经移除。
 
@@ -59,7 +60,7 @@ npm run build
 python -m unittest discover -s tests
 ~~~
 
-其中 Node 测试覆盖计分领域、IPC/Worker、安全边界、SQLite、legacy 导入、报表和复盘；Python 测试覆盖设备协议、设备服务、平台适配、legacy 计分与媒体锚点。
+当前 Node 测试同时包含主路径和待删除 legacy 边界；Python 测试同时包含 Platform Worker 与待删除 FastAPI 实现。legacy 删除后只保留新主路径和 Worker 测试。
 
 ## 构建
 
@@ -75,7 +76,7 @@ npm run build:win
 npm run build:mac
 ~~~
 
-当前安装包仍包含两个 Python 产物：
+当前安装包仍包含两个 Python 产物；目标只保留第二项：
 
 - `backend-engine`：过渡期 legacy FastAPI backend。
 - `local-platform-worker`：JSONL stdio 本机能力 Worker。
@@ -86,10 +87,10 @@ npm run build:mac
 
 | 数据 | 说明 |
 | --- | --- |
-| `config.yaml` | legacy backend 端口等运行配置 |
-| `app_settings.json` | 仅供 legacy backend 兼容路由使用的旧设置 |
-| `match_data/` | 当前 legacy 项目和 CSV 权威数据 |
-| `ft-engine.db` | 实时事件与应用设置权威存储；项目数据仍处于导入/影子阶段 |
+| `config.yaml` | 当前仍包含 backend 端口配置，backend 删除后收口为桌面/Worker 配置 |
+| `app_settings.json` | 待删除的 legacy 设置文件 |
+| `match_data/` | 待删除且不迁移的 legacy 项目目录 |
+| `ft-engine.db` | 项目、事件、设置和媒体的当前权威存储；重构允许重建新 Schema |
 | `backups/` | SQLite 迁移前备份 |
 | `logs/` | 启动和运行日志 |
 
@@ -99,17 +100,18 @@ npm run build:mac
 
 ~~~text
 src/main/
+  application/        Competition、Match、Settings 等应用服务
   domain/             TypeScript 计分领域
-  persistence/        SQLite、迁移和 legacy importer
+  persistence/        SQLite Repository；当前仍混有待删除 importer
   worker/             WorkerClient
-  legacy/             影子事件兼容层
+  legacy/             待删除的 shadow event
 src/preload/          主窗口与 Overlay 的窄化 API
-src/shared/           IPC 类型契约
+src/shared/           IPC 与领域 DTO 契约
 src/renderer/         Vue 界面
 workers/local_platform_worker/
                       BLE、USB 和窗口 Worker
-server.py             过渡期 FastAPI backend
-utils/                legacy 存储、导出和媒体模块
+server.py             待删除的 FastAPI backend
+utils/                待删除 legacy 模块与少量运行工具
 tests/                Node 与 Python 回归测试
 ~~~
 
@@ -122,7 +124,6 @@ tests/                Node 与 Python 回归测试
 - [Django 用户服务目标](docs/BACKEND_DJANGO_zh.md)
 - [用户与社区产品边界](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
 - [Windows 与 macOS 平台适配规范](docs/PLATFORM_ADAPTATION_zh.md)
-- [中文使用说明](Manual_Doc/zh/manual.md)
 
 ## License
 
