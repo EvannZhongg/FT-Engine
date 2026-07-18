@@ -51,7 +51,7 @@ export function normalizeAppSetting(
       typeof value !== 'string' ||
       !value ||
       value.length > 64 ||
-      /[\u0000-\u001f\u007f]/.test(value)
+      /[\p{Cc}\u007f]/u.test(value)
     ) {
       throw new Error('SETTINGS_VALUE_INVALID')
     }

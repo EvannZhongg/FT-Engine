@@ -51,18 +51,18 @@ Renderer projects.create/update
 ### 高优先级
 
 1. 当前只有单一默认 Stage。多阶段、尝试次数以及 Competition/Stage/MatchSession 状态流转尚未形成完整领域行为。
-2. `index.js` 仍聚合 Worker、设备/平台、快捷键、更新和应用生命周期，需要继续拆分组合根。
+2. `index.js` 仍聚合数据库/服务组装、快捷键、更新和应用生命周期，需要继续收缩为 bootstrap。
 3. Worker 自动重启耗尽后虽发布错误状态，但没有用户触发的重试命令。
 4. 仍需真实 BLE/USB、睡眠恢复、OBS、YouTube 网络和 macOS 签名/权限验收。
 
 ### 结构问题
 
-1. Competition、Match、Query、Settings、Export、Window 和 Overlay IPC 已拆到 `src/main/ipc/`；Worker、设备/平台、快捷键和更新生命周期仍集中在 `src/main/index.js`。
+1. Competition、Match、Query、Settings、Export、Window、Overlay、Platform 和 Device IPC 已拆到 `src/main/ipc/`；快捷键、更新和应用级命令仍集中在 `src/main/index.js`。
 2. `MatchSessionService` 仍同时负责状态机、设备控制、媒体锚点、事件协调和通知。
 
 ## 5. 当前代码集中点
 
-- `src/main/index.js` 已降至约 558 行，仍混合数据库、Worker、服务组合、设备/平台 IPC、快捷键和更新生命周期。
+- `src/main/index.js` 已降至约 418 行，仍混合数据库/服务组装、快捷键、更新和应用生命周期。
 - `src/main/match/match-session.mts` 约 765 行，混合状态机、设备控制、事件协调、媒体锚点和通知。
 - `src/main/persistence/local-database.mts` 已收缩为约 154 行 facade；赛事/比赛写入和 Replay/Report/Export 只读投影已分模块。
 - `src/renderer/src/stores/refereeStore.js` 约 504 行，混合设置、项目、设备、比赛、Overlay、复盘和导出。
@@ -82,8 +82,9 @@ Renderer projects.create/update
 
 2026-07-19 当前工作树检查：
 
-- `npm test`：64/64 通过。
-- `npm run typecheck`：通过。
+- `npm test`：70/70 通过。
+- `npm run typecheck`：通过，覆盖全部 Main `.mts` 模块。
+- `npm run lint`：0 error；历史换行和格式 warning 尚未批量清理。
 - `python -m unittest discover -s tests`：17/17 通过，仅包含 Platform Worker。
 - `npm run build`、`npm run build:worker:win`、`npm run build:unpack`：通过。
 - 解包版进程级检查：SQLite 和 Worker 握手成功，进程树无 TCP 监听；资源目录只有 `local-platform-worker.exe`，没有 backend、server 或端口配置。

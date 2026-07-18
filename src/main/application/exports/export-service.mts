@@ -520,7 +520,7 @@ function uniqueFileSegment(value: string, used: Set<string>, fallback: string): 
 
 function sanitizeFileSegment(value: string, fallback: string): string {
   const normalized = value
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/[<>:"/\\|?*\p{Cc}]/gu, '_')
     .replace(/[. ]+$/g, '')
     .trim()
   return (normalized || fallback).slice(0, 96)

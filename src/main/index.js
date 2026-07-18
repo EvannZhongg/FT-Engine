@@ -19,16 +19,15 @@ import { registerQueryIpc } from './ipc/register-queries.mts'
 import { registerSettingsIpc } from './ipc/register-settings.mts'
 import { registerWindowIpc } from './ipc/register-windows.mts'
 import { registerOverlayIpc } from './ipc/register-overlay.mts'
+import { registerPlatformIpc } from './ipc/register-platform.mts'
+import { registerDeviceIpc } from './ipc/register-devices.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 import { DesktopWindowManager } from './app/windows.mts'
+import { PlatformWorkerManager } from './infrastructure/platform-worker/platform-worker-manager.mjs'
 
-let platformWorker = null
 let localDatabase = null
-let platformWorkerRestartTimer = null
-let platformWorkerRestartCount = 0
-let platformWorkerStopping = false
+let platformWorkerManager = null
 let windowManager = null
-const MAX_PLATFORM_WORKER_RESTARTS = 3
 
 let startupLogStream = null
 let startupT0 = 0
@@ -74,8 +73,8 @@ function logToFile(message) {
 
 const deviceLifecycle = new DeviceLifecycle({
   disconnectWorker: async () => {
-    if (!platformWorker) return { skipped: true }
-    await platformWorker.request('device.disconnectAll', {}, 5000)
+    if (!platformWorkerManager) return { skipped: true }
+    return platformWorkerManager.disconnectAll()
   },
   onStopped: (reason, result) => {
     const message = `Device shutdown (${reason}): worker=${result.worker.status}`
@@ -90,8 +89,8 @@ function sendMatchEvent(channel, payload) {
 
 const matchSession = new MatchSessionService({
   requestWorker: (method, params = {}, timeoutMs) => {
-    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
-    return platformWorker.request(method, params, timeoutMs)
+    if (!platformWorkerManager) throw new Error('WORKER_NOT_RUNNING')
+    return platformWorkerManager.request(method, params, timeoutMs)
   },
   persistEvent: (input) => {
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
@@ -111,6 +110,20 @@ const matchSession = new MatchSessionService({
   onError: (code, error) => {
     console.error('[Electron] Match session error:', code, error || '')
     logToFile(`Match session error: ${code}`)
+  }
+})
+
+platformWorkerManager = new PlatformWorkerManager({
+  createClient: createPlatformWorkerClient,
+  onEvent: (message) => matchSession.handleWorkerEvent(message),
+  onUnavailable: () => matchSession.markWorkerUnavailable(),
+  isSessionActive: () => matchSession.isActive(),
+  reconnectSession: () => matchSession.reconnectWorker(),
+  log: (level, message) => {
+    if (level === 'error') console.error('[Electron]', message)
+    else if (level === 'warn') console.warn('[Electron]', message)
+    else console.log('[Electron]', message)
+    logToFile(message)
   }
 })
 
@@ -185,7 +198,7 @@ function getLocalDataTargets() {
 
 async function deleteLocalDataFiles() {
   await stopDeviceSessions('delete-local-data')
-  await exitPlatformWorker()
+  await platformWorkerManager.stop()
   closeLocalDatabase()
   closeStartupLog()
 
@@ -205,79 +218,15 @@ async function deleteLocalDataFiles() {
   return { deleted, failed, dataRoot: getDataRoot(app) }
 }
 
-async function createPlatformWorker() {
+function createPlatformWorkerClient() {
   const { cmd, args } = getPlatformWorkerLaunchConfig(is.dev)
-  const worker = new WorkerClient({
+  return new WorkerClient({
     command: cmd,
     args,
     cwd: process.cwd(),
     env: getPlatformWorkerEnv(app),
     requestTimeoutMs: 3000
   })
-  platformWorker = worker
-  worker.on('stderr', (chunk) => {
-    const message = chunk.trim()
-    if (message) console.warn('[Platform Worker]', message)
-  })
-  worker.on('protocolError', (error) => {
-    console.error('[Electron] Platform Worker protocol error:', error.code)
-  })
-  worker.on('event', (message) => matchSession.handleWorkerEvent(message))
-  worker.on('exit', ({ code, signal }) => {
-    console.warn(`[Electron] Platform Worker exited (code=${code}, signal=${signal})`)
-    if (platformWorker === worker) platformWorker = null
-    if (!platformWorkerStopping) matchSession.markWorkerUnavailable()
-    schedulePlatformWorkerRestart()
-  })
-
-  try {
-    await worker.start()
-    const hello = await worker.request('system.hello')
-    console.log('[Electron] Platform Worker ready:', hello)
-    logToFile(`Platform Worker ready: ${JSON.stringify(hello)}`)
-    if (matchSession.isActive()) await matchSession.reconnectWorker()
-    return hello
-  } catch (error) {
-    worker.terminate()
-    if (platformWorker === worker) platformWorker = null
-    throw error
-  }
-}
-
-function schedulePlatformWorkerRestart() {
-  if (
-    platformWorkerStopping ||
-    platformWorkerRestartTimer ||
-    platformWorkerRestartCount >= MAX_PLATFORM_WORKER_RESTARTS
-  ) {
-    return
-  }
-  platformWorkerRestartCount += 1
-  const delayMs = platformWorkerRestartCount * 1000
-  console.warn(
-    `[Electron] Restarting Platform Worker in ${delayMs}ms ` +
-      `(${platformWorkerRestartCount}/${MAX_PLATFORM_WORKER_RESTARTS})`
-  )
-  platformWorkerRestartTimer = setTimeout(async () => {
-    platformWorkerRestartTimer = null
-    try {
-      await createPlatformWorker()
-    } catch (error) {
-      console.error('[Electron] Platform Worker restart failed:', error.message)
-      schedulePlatformWorkerRestart()
-    }
-  }, delayMs)
-}
-
-async function exitPlatformWorker() {
-  platformWorkerStopping = true
-  if (platformWorkerRestartTimer) {
-    clearTimeout(platformWorkerRestartTimer)
-    platformWorkerRestartTimer = null
-  }
-  const worker = platformWorker
-  platformWorker = null
-  if (worker) await worker.stop(750)
 }
 
 function openAllowedExternalUrl(value) {
@@ -345,13 +294,12 @@ app.whenReady().then(async () => {
     console.error('[Electron] Local database unavailable:', error.message)
     logToFile(`Local database unavailable: ${error.message}`)
   }
-  platformWorkerStopping = false
   try {
-    await createPlatformWorker()
+    await platformWorkerManager.start()
   } catch (error) {
     console.error('[Electron] Platform Worker unavailable:', error.message)
     logToFile(`Platform Worker unavailable: ${error.message}`)
-    schedulePlatformWorkerRestart()
+    platformWorkerManager.scheduleRestart()
   }
 
   logToFile('Creating main window...')
@@ -377,7 +325,7 @@ app.whenReady().then(async () => {
       return
     }
     await stopDeviceSessions('restart-for-update')
-    await exitPlatformWorker()
+    await platformWorkerManager.stop()
     closeLocalDatabase()
     autoUpdater.quitAndInstall()
   })
@@ -421,88 +369,6 @@ app.whenReady().then(async () => {
     console.log('[Electron] Global shortcuts unregistered')
   })
 
-  ipcMain.handle(IPC_CHANNELS.platform.listWindows, async (event) => {
-    windowManager.assertMainSender(event)
-    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
-    return platformWorker.request('window.list')
-  })
-
-  ipcMain.handle(IPC_CHANNELS.platform.getWindowBounds, async (event, windowId) => {
-    windowManager.assertMainSender(event)
-    if (typeof windowId !== 'string' || !windowId || windowId.length > 128) {
-      throw new Error('IPC_INVALID_WINDOW_ID')
-    }
-    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
-    return platformWorker.request('window.getBounds', { windowId })
-  })
-
-  ipcMain.handle(IPC_CHANNELS.devices.scan, async (event, value) => {
-    windowManager.assertMainSender(event)
-    const options = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    const flush = options.flush === true
-    const rawRemarks =
-      options.remarks && typeof options.remarks === 'object' && !Array.isArray(options.remarks)
-        ? options.remarks
-        : {}
-    const entries = Object.entries(rawRemarks)
-    if (entries.length > 1000) throw new Error('IPC_INVALID_DEVICE_REMARKS')
-    const remarks = {}
-    for (const [deviceId, remark] of entries) {
-      if (deviceId.length > 256 || typeof remark !== 'string' || remark.length > 256) {
-        throw new Error('IPC_INVALID_DEVICE_REMARKS')
-      }
-      remarks[deviceId] = remark
-    }
-    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
-    return platformWorker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.devices.rename, async (event, value) => {
-    windowManager.assertMainSender(event)
-    if (!Array.isArray(value) || value.length > 100) {
-      throw new Error('IPC_INVALID_DEVICE_RENAME')
-    }
-    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
-    return Promise.all(
-      value.map(async (item) => {
-        if (
-          !item ||
-          typeof item.deviceId !== 'string' ||
-          !item.deviceId ||
-          item.deviceId.length > 128 ||
-          typeof item.name !== 'string' ||
-          !item.name.trim() ||
-          Buffer.byteLength(item.name.trim(), 'utf8') > 32
-        ) {
-          return {
-            deviceId: String(item?.deviceId || ''),
-            name: String(item?.name || ''),
-            status: 'error',
-            error: 'INVALID_PARAMS'
-          }
-        }
-        try {
-          await platformWorker.request(
-            'device.renameDiscovered',
-            {
-              deviceId: item.deviceId,
-              name: item.name.trim()
-            },
-            15000
-          )
-          return { deviceId: item.deviceId, name: item.name.trim(), status: 'ok' }
-        } catch (error) {
-          return {
-            deviceId: item.deviceId,
-            name: item.name.trim(),
-            status: 'error',
-            error: error.code || 'DEVICE_RENAME_FAILED'
-          }
-        }
-      })
-    )
-  })
-
   const ipcContext = {
     assertMainSender: (event) => windowManager.assertMainSender(event),
     getDatabase: () => localDatabase
@@ -514,6 +380,8 @@ app.whenReady().then(async () => {
   registerExportIpc(ipcContext, exportService, saveExportArtifact)
   registerWindowIpc(windowManager)
   registerOverlayIpc(windowManager, () => matchSession.getStatus())
+  registerPlatformIpc(ipcContext, platformWorkerManager)
+  registerDeviceIpc(ipcContext, platformWorkerManager)
 
   ipcMain.handle(IPC_CHANNELS.app.deleteLocalData, async (event) => {
     windowManager.assertMainSender(event)
@@ -538,20 +406,12 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   closeLocalDatabase()
-  platformWorkerStopping = true
-  if (platformWorkerRestartTimer) {
-    clearTimeout(platformWorkerRestartTimer)
-    platformWorkerRestartTimer = null
-  }
-  if (platformWorker) {
-    platformWorker.terminate()
-    platformWorker = null
-  }
+  platformWorkerManager.terminate()
 })
 
 app.on('window-all-closed', async () => {
   if (!isMac) {
-    await exitPlatformWorker()
+    await platformWorkerManager.stop()
     closeLocalDatabase()
     app.quit()
   }

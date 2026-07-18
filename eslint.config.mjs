@@ -1,11 +1,27 @@
 import eslintConfig from '@electron-toolkit/eslint-config'
 import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
+import typescriptPlugin from '@typescript-eslint/eslint-plugin'
+import typescriptParser from '@typescript-eslint/parser'
 import eslintPluginVue from 'eslint-plugin-vue'
 import vueParser from 'vue-eslint-parser'
 
 export default [
   { ignores: ['**/node_modules', '**/.venv', '**/build', '**/dist', '**/out'] },
   eslintConfig,
+  {
+    files: ['**/*.{ts,mts}'],
+    plugins: {
+      '@typescript-eslint': typescriptPlugin
+    },
+    languageOptions: {
+      parser: typescriptParser
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
+    }
+  },
   ...eslintPluginVue.configs['flat/recommended'],
   {
     files: ['**/*.vue'],

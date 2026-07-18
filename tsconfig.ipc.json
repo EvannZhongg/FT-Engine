@@ -12,10 +12,7 @@
   },
   "include": [
     "src/shared/**/*.ts",
-    "src/main/application/**/*.mts",
-    "src/main/domain/**/*.mts",
-    "src/main/match/**/*.mts",
-    "src/main/persistence/**/*.mts",
+    "src/main/**/*.mts",
     "src/preload/**/*.ts",
     "src/renderer/src/**/*.d.ts"
   ]

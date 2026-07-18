@@ -90,3 +90,26 @@ test('keeps window and Overlay lifecycle out of the Main composition root', () =
   assert.equal(windowIpc.includes('IPC_CHANNELS.window.toggleMaximize'), true)
   assert.equal(overlayIpc.includes('IPC_CHANNELS.overlay.setClickThrough'), true)
 })
+
+test('keeps Platform Worker lifecycle and device IPC out of the Main composition root', () => {
+  const main = source('src/main/index.js')
+  const manager = source('src/main/infrastructure/platform-worker/platform-worker-manager.mjs')
+  const platformIpc = source('src/main/ipc/register-platform.mts')
+  const deviceIpc = source('src/main/ipc/register-devices.mts')
+
+  for (const implementation of [
+    'platformWorkerRestartTimer',
+    "worker.on('exit'",
+    'ipcMain.handle(IPC_CHANNELS.platform',
+    'ipcMain.handle(IPC_CHANNELS.devices'
+  ]) {
+    assert.equal(main.includes(implementation), false, implementation)
+  }
+  assert.equal(main.includes('new PlatformWorkerManager'), true)
+  assert.equal(main.includes('registerPlatformIpc(ipcContext, platformWorkerManager)'), true)
+  assert.equal(main.includes('registerDeviceIpc(ipcContext, platformWorkerManager)'), true)
+  assert.equal(manager.includes("worker.on('exit'"), true)
+  assert.equal(manager.includes('this.#maxRestarts'), true)
+  assert.equal(platformIpc.includes('IPC_INVALID_WINDOW_ID'), true)
+  assert.equal(deviceIpc.includes('IPC_INVALID_DEVICE_REMARKS'), true)
+})
