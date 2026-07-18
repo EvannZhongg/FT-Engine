@@ -12,7 +12,7 @@ FastAPI、Renderer Axios fallback、backend 进程管理、旧项目 importer、
 
 1. 将默认 `Main` Stage 扩展为正式 Stage service，支持排序、尝试次数和 Competition/Stage/MatchSession 状态流转。
 2. 分域 IPC 注册已拆到 `src/main/ipc/`；继续将 `src/main/index.js` 拆为 bootstrap、窗口、设备/平台和 Overlay 生命周期模块。
-3. 将 `LocalDatabase` 拆成 migration runner、Competition/Match/Settings Repository 与 Replay/Report Query。
+3. SQLite schema 与连接/备份重建已拆到 `persistence/sqlite/`；继续将 `LocalDatabase` facade 拆成 Competition/Match/Settings Repository 与 Replay/Report Query。
 4. 将 `MatchSessionService` 的设备控制、媒体锚点和状态通知拆为协作者。
 5. 移除共享 DTO 中的 `dir_name`、`project_name`、`pri_addr` 等过渡命名，使用稳定领域 ID。
 

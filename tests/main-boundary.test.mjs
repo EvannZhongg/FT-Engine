@@ -21,3 +21,15 @@ test('keeps domain IPC registration out of the Main composition root', () => {
     assert.equal(main.includes(`${registration}(`), true, registration)
   }
 })
+
+test('keeps SQLite schema and connection lifecycle outside the repository facade', () => {
+  const facade = source('src/main/persistence/local-database.mts')
+  const connection = source('src/main/persistence/sqlite/connection.mts')
+  const schema = source('src/main/persistence/sqlite/schema.mts')
+  for (const implementation of ['CREATE TABLE', 'copyFileSync', 'new DatabaseSync']) {
+    assert.equal(facade.includes(implementation), false, implementation)
+  }
+  assert.equal(connection.includes('new DatabaseSync'), true)
+  assert.equal(connection.includes('createResetBackup'), true)
+  assert.equal(schema.includes('CREATE TABLE competitions'), true)
+})

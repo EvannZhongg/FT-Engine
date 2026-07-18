@@ -58,14 +58,14 @@ Renderer projects.create/update
 ### 结构问题
 
 1. Competition、Match、Query、Settings 和 Export IPC 已拆到 `src/main/ipc/`；Worker、设备、窗口和 Overlay 生命周期仍集中在 `src/main/index.js`。
-2. `LocalDatabase` 仍同时包含 schema、Competition、Match、Settings、Replay、Report 和 Export 查询实现。
+2. SQLite schema 和连接/备份重建已拆到 `persistence/sqlite/`；`LocalDatabase` facade 仍同时包含 Competition、Match、Settings、Replay、Report 和 Export 查询实现。
 3. `MatchSessionService` 仍同时负责状态机、设备控制、媒体锚点、事件协调和通知。
 
 ## 5. 当前代码集中点
 
 - `src/main/index.js` 约 763 行，混合数据库、Worker、服务组合、设备/平台 IPC 和窗口生命周期。
 - `src/main/match/match-session.mts` 约 765 行，混合状态机、设备控制、事件协调、媒体锚点和通知。
-- `src/main/persistence/local-database.mts` 约 1147 行，混合 schema、多个 Repository 和查询投影。
+- `src/main/persistence/local-database.mts` 约 914 行，混合多个 Repository 和查询投影。
 - `src/renderer/src/stores/refereeStore.js` 约 504 行，混合设置、项目、设备、比赛、Overlay、复盘和导出。
 
 下一阶段需要按既有边界拆分，而不是继续向这些集中点追加职责。
@@ -83,7 +83,7 @@ Renderer projects.create/update
 
 2026-07-18 当前工作树检查：
 
-- `npm test`：55/55 通过。
+- `npm test`：56/56 通过。
 - `npm run typecheck`：通过。
 - `python -m unittest discover -s tests`：17/17 通过，仅包含 Platform Worker。
 - `npm run build`、`npm run build:worker:win`、`npm run build:unpack`：通过。
