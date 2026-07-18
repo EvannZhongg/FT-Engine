@@ -27,7 +27,9 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 
 rm -rf "${PROJECT_ROOT}/backend-engine"
+rm -rf "${PROJECT_ROOT}/local-platform-worker"
 python3 -m PyInstaller --noconsole --onedir --name backend-engine --distpath . server.py
+python3 -m PyInstaller --noconsole --onedir --name local-platform-worker --distpath . workers/local_platform_worker/worker_entry.py
 
 ENTITLEMENTS="${PROJECT_ROOT}/resources/entitlements-backend.plist"
 BACKEND_EXE="${PROJECT_ROOT}/backend-engine/backend-engine"
@@ -35,6 +37,11 @@ if [ -f "$ENTITLEMENTS" ] && [ -f "$BACKEND_EXE" ]; then
   codesign --force --sign - --entitlements "$ENTITLEMENTS" "$BACKEND_EXE"
 fi
 
+WORKER_EXE="${PROJECT_ROOT}/local-platform-worker/local-platform-worker"
+if [ -f "$ENTITLEMENTS" ] && [ -f "$WORKER_EXE" ]; then
+  codesign --force --sign - --entitlements "$ENTITLEMENTS" "$WORKER_EXE"
+fi
+
 deactivate
 
-echo "macOS backend build complete."
+echo "macOS backend and local platform worker build complete."

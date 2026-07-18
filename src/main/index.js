@@ -10,20 +10,27 @@ import {
   getBackendLaunchConfig,
   getConfigPath,
   getDataRoot,
+  getPlatformWorkerLaunchConfig,
   isMac,
   isWindows
 } from './platform'
 import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
+import { WorkerClient } from './worker/worker-client.mjs'
 
 const { spawn, execSync } = require('child_process')
 const net = require('net')
 
 let pyProc = null
+let platformWorker = null
+let platformWorkerRestartTimer = null
+let platformWorkerRestartCount = 0
+let platformWorkerStopping = false
 let mainWindow = null
 let overlayWindow = null
 const MAIN_WINDOW_TITLE = 'FT Engine'
 const OVERLAY_WINDOW_TITLE = 'FT Engine Overlay'
+const MAX_PLATFORM_WORKER_RESTARTS = 3
 
 let startupLogStream = null
 let startupT0 = 0
@@ -174,6 +181,11 @@ function getLocalDataTargets() {
 function deleteLocalDataFiles() {
   closeStartupLog()
   exitPyProc()
+  if (platformWorker) {
+    platformWorkerStopping = true
+    platformWorker.terminate()
+    platformWorker = null
+  }
 
   const deleted = []
   const failed = []
@@ -189,6 +201,78 @@ function deleteLocalDataFiles() {
   }
 
   return { deleted, failed, dataRoot: getDataRoot(app) }
+}
+
+async function createPlatformWorker() {
+  const { cmd, args } = getPlatformWorkerLaunchConfig(is.dev)
+  const worker = new WorkerClient({
+    command: cmd,
+    args,
+    cwd: process.cwd(),
+    env: getBackendEnv(app),
+    requestTimeoutMs: 3000
+  })
+  platformWorker = worker
+  worker.on('stderr', (chunk) => {
+    const message = chunk.trim()
+    if (message) console.warn('[Platform Worker]', message)
+  })
+  worker.on('protocolError', (error) => {
+    console.error('[Electron] Platform Worker protocol error:', error.code)
+  })
+  worker.on('exit', ({ code, signal }) => {
+    console.warn(`[Electron] Platform Worker exited (code=${code}, signal=${signal})`)
+    if (platformWorker === worker) platformWorker = null
+    schedulePlatformWorkerRestart()
+  })
+
+  try {
+    await worker.start()
+    const hello = await worker.request('system.hello')
+    console.log('[Electron] Platform Worker ready:', hello)
+    logToFile(`Platform Worker ready: ${JSON.stringify(hello)}`)
+    return hello
+  } catch (error) {
+    worker.terminate()
+    if (platformWorker === worker) platformWorker = null
+    throw error
+  }
+}
+
+function schedulePlatformWorkerRestart() {
+  if (
+    platformWorkerStopping ||
+    platformWorkerRestartTimer ||
+    platformWorkerRestartCount >= MAX_PLATFORM_WORKER_RESTARTS
+  ) {
+    return
+  }
+  platformWorkerRestartCount += 1
+  const delayMs = platformWorkerRestartCount * 1000
+  console.warn(
+    `[Electron] Restarting Platform Worker in ${delayMs}ms ` +
+    `(${platformWorkerRestartCount}/${MAX_PLATFORM_WORKER_RESTARTS})`
+  )
+  platformWorkerRestartTimer = setTimeout(async () => {
+    platformWorkerRestartTimer = null
+    try {
+      await createPlatformWorker()
+    } catch (error) {
+      console.error('[Electron] Platform Worker restart failed:', error.message)
+      schedulePlatformWorkerRestart()
+    }
+  }, delayMs)
+}
+
+async function exitPlatformWorker() {
+  platformWorkerStopping = true
+  if (platformWorkerRestartTimer) {
+    clearTimeout(platformWorkerRestartTimer)
+    platformWorkerRestartTimer = null
+  }
+  const worker = platformWorker
+  platformWorker = null
+  if (worker) await worker.stop(750)
 }
 
 function isSender(event, window) {
@@ -286,6 +370,14 @@ app.whenReady().then(async () => {
   })
 
   createPyProc()
+  platformWorkerStopping = false
+  try {
+    await createPlatformWorker()
+  } catch (error) {
+    console.error('[Electron] Platform Worker unavailable, legacy backend remains active:', error.message)
+    logToFile(`Platform Worker unavailable: ${error.message}`)
+    schedulePlatformWorkerRestart()
+  }
 
   if (!is.dev) {
     logToFile(`Waiting for backend on port ${appConfig.port}...`)
@@ -310,8 +402,10 @@ app.whenReady().then(async () => {
     if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.app.updateDownloaded)
   })
 
-  ipcMain.on(IPC_CHANNELS.app.restartForUpdate, (event) => {
+  ipcMain.on(IPC_CHANNELS.app.restartForUpdate, async (event) => {
     if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.app.restartForUpdate)) return
+    await exitPlatformWorker()
+    exitPyProc()
     autoUpdater.quitAndInstall()
   })
 
@@ -520,12 +614,22 @@ app.whenReady().then(async () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  platformWorkerStopping = true
+  if (platformWorkerRestartTimer) {
+    clearTimeout(platformWorkerRestartTimer)
+    platformWorkerRestartTimer = null
+  }
+  if (platformWorker) {
+    platformWorker.terminate()
+    platformWorker = null
+  }
   exitPyProc()
 })
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   if (!isMac) {
     exitPyProc()
+    await exitPlatformWorker()
     app.quit()
   }
 })

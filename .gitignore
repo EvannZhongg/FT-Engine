@@ -7,6 +7,9 @@ out/
 build/
 backend-engine.exe
 backend-engine.spec
+local-platform-worker.exe
+local-platform-worker.spec
+local-platform-worker/
 
 # Python
 __pycache__/

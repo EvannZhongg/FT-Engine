@@ -50,6 +50,14 @@ function getPackagedBackendPath() {
   return join(process.resourcesPath, 'backend-engine', 'backend-engine')
 }
 
+function getPackagedWorkerPath() {
+  if (isWindows) {
+    return join(process.resourcesPath, 'local-platform-worker.exe')
+  }
+
+  return join(process.resourcesPath, 'local-platform-worker', 'local-platform-worker')
+}
+
 export function getBackendLaunchConfig(currentDir, isDev) {
   const script = join(currentDir, '../../server.py')
 
@@ -62,6 +70,20 @@ export function getBackendLaunchConfig(currentDir, isDev) {
 
   return {
     cmd: getPackagedBackendPath(),
+    args: []
+  }
+}
+
+export function getPlatformWorkerLaunchConfig(isDev) {
+  if (isDev) {
+    return {
+      cmd: getDevPythonCommand(),
+      args: ['-m', 'workers.local_platform_worker.ft_worker']
+    }
+  }
+
+  return {
+    cmd: getPackagedWorkerPath(),
     args: []
   }
 }

@@ -27,6 +27,11 @@ if (Test-Path ".\backend-engine.exe") {
   Remove-Item ".\backend-engine.exe" -Force
 }
 
-& $pythonCmd @pythonBaseArgs -m PyInstaller --onefile --name backend-engine --distpath . server.py
+if (Test-Path ".\local-platform-worker.exe") {
+  Remove-Item ".\local-platform-worker.exe" -Force
+}
 
-Write-Host "Windows backend build complete."
+& $pythonCmd @pythonBaseArgs -m PyInstaller --onefile --name backend-engine --distpath . server.py
+& $pythonCmd @pythonBaseArgs -m PyInstaller --onefile --name local-platform-worker --distpath . workers\local_platform_worker\worker_entry.py
+
+Write-Host "Windows backend and local platform worker build complete."

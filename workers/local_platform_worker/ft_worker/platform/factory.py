@@ -1,4 +1,3 @@
-import importlib.util
 import sys
 
 from .contract import PlatformServices
@@ -6,8 +5,9 @@ from .contract import PlatformServices
 
 def create_platform_services(platform_name: str | None = None) -> PlatformServices:
   selected = sys.platform if platform_name is None else platform_name
-  ble_available = importlib.util.find_spec("bleak") is not None
-  usb_available = importlib.util.find_spec("serial") is not None
+  # Capabilities describe implemented Worker commands, not installed libraries.
+  ble_available = False
+  usb_available = False
 
   if selected == "win32":
     from .windows.window_tracker import WindowsWindowTracker
