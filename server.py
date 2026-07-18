@@ -1,9 +1,7 @@
 import asyncio
 import time
-import struct
 import threading
 import uuid
-from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi.responses import StreamingResponse
@@ -26,6 +24,21 @@ from utils.platform import get_ble_heartbeat_config, should_enable_ble_heartbeat
 from utils.runtime import get_config_path
 from utils.media import MediaCapture, normalize_youtube_url, playback_anchors
 from utils.storage import ScoreEventSnapshot, storage_manager
+from workers.local_platform_worker.ft_worker.device_protocol import (
+  USB_CMD_IDENTIFY,
+  USB_CMD_RENAME,
+  USB_CMD_RESET,
+  USB_EVT_COUNTER,
+  USB_PORT_PREFIX,
+  USB_RSP_COMMAND,
+  USB_RSP_IDENTIFY,
+  USB_SERIAL_PREFIX,
+  build_usb_frame,
+  build_usb_port_address,
+  extract_usb_frames,
+  parse_identify_payload,
+  parse_notification_data,
+)
 
 SERVICE_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
 CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
@@ -33,15 +46,6 @@ STANDARD_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 
 DEVICE_NAME_PREFIX = "Counter-"
 DEBUG_SCORE_LATENCY = os.environ.get("DEBUG_SCORE_LATENCY", "").strip() == "1"
-USB_FRAME_MAGIC = b"FTE1"
-USB_CMD_RESET = 0x01
-USB_CMD_RENAME = 0x02
-USB_CMD_IDENTIFY = 0x03
-USB_EVT_COUNTER = 0x11
-USB_RSP_IDENTIFY = 0x12
-USB_RSP_COMMAND = 0x13
-USB_SERIAL_PREFIX = "usb:"
-USB_PORT_PREFIX = "usbport:"
 ESPRESSIF_USB_VID = 0x303A
 SERIAL_SCAN_TIMEOUT = 0.35
 
@@ -73,85 +77,6 @@ def load_config():
   return port
 
 
-@dataclass
-class ClickerEvent:
-  current_total: int
-  event_type: int
-  total_plus: int
-  total_minus: int
-  timestamp_ms: int
-
-
-def build_usb_frame(frame_type: int, payload: bytes = b"") -> bytes:
-  payload_len = len(payload)
-  if payload_len > 255:
-    raise ValueError("USB payload too large")
-
-  checksum = frame_type ^ payload_len
-  for byte in payload:
-    checksum ^= byte
-
-  return USB_FRAME_MAGIC + bytes((frame_type, payload_len)) + payload + bytes((checksum,))
-
-
-def extract_usb_frames(buffer: bytearray):
-  frames = []
-
-  while True:
-    if len(buffer) < 7:
-      break
-
-    magic_index = buffer.find(USB_FRAME_MAGIC)
-    if magic_index < 0:
-      buffer.clear()
-      break
-
-    if magic_index > 0:
-      del buffer[:magic_index]
-
-    if len(buffer) < 7:
-      break
-
-    payload_len = buffer[5]
-    frame_len = 7 + payload_len
-    if len(buffer) < frame_len:
-      break
-
-    frame = bytes(buffer[:frame_len])
-    del buffer[:frame_len]
-
-    frame_type = frame[4]
-    payload = frame[6:-1]
-    checksum = frame[-1]
-
-    expected = frame_type ^ payload_len
-    for byte in payload:
-      expected ^= byte
-
-    if checksum == expected:
-      frames.append((frame_type, payload))
-
-  return frames
-
-
-def parse_identify_payload(payload: bytes) -> tuple[str, str]:
-  if len(payload) < 7:
-    raise ValueError("identify payload too short")
-
-  mac = payload[:6]
-  name_len = payload[6]
-  if len(payload) != 7 + name_len:
-    raise ValueError("identify payload length mismatch")
-
-  name = payload[7:].decode("utf-8")
-  mac_hex = "".join(f"{part:02X}" for part in mac)
-  return f"{USB_SERIAL_PREFIX}{mac_hex}", name
-
-
-def build_usb_port_address(port_path: str) -> str:
-  return f"{USB_PORT_PREFIX}{port_path}"
-
-
 def get_remark_for_id(remarks: dict, device_id: str, legacy_ble_id: Optional[str] = None) -> str:
   if device_id in remarks:
     return remarks[device_id]
@@ -167,13 +92,6 @@ def invoke_in_main_loop(callback, *args):
     _main_loop.call_soon_threadsafe(callback, *args)
   else:
     callback(*args)
-
-
-def parse_notification_data(data: bytes) -> ClickerEvent:
-  struct_format = "<ibiiI"
-  if len(data) != 17:
-    raise ValueError("Data mismatch")
-  return ClickerEvent(*struct.unpack(struct_format, data))
 
 
 class ScannerManager:
