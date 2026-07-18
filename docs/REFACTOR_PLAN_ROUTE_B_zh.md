@@ -16,9 +16,11 @@ Platform Worker 的握手、事件转发、停止和有界自动重启已进入 
 
 App/Shortcut IPC、更新通知以及 activate/will-quit/window-all-closed 生命周期已拆出，`index.js` 不再直接注册 IPC 或 Electron 生命周期事件。
 
+StageService/Repository 已支持 graph 配置、排序、1～20 次尝试以及 draft/active/completed 转换；计分输入显式携带 attemptNumber，首个持久化事件会在同一事务内激活 MatchSession、Stage 和 Competition。Schema 已切换为 clean v2，不迁移 v1 数据。
+
 ## 2. P0：补齐赛事领域并拆分 Main
 
-1. 将默认 `Main` Stage 扩展为正式 Stage service，支持排序、尝试次数和 Competition/Stage/MatchSession 状态流转。
+1. Stage 后端和 attempt 计分已实现；继续接入 Renderer 多 Stage 配置/选择，并实现 MatchSession 完成/作废与“完成并下一位”原子事务。
 2. 所有 IPC、窗口/Overlay、Worker、更新和应用生命周期已拆出；继续将 `src/main/index.js` 中的数据库/服务装配、本地文件操作和导出对话框收敛到 bootstrap 与明确协作者。
 3. 将 `MatchSessionService` 的设备控制、媒体锚点和状态通知拆为协作者。
 4. 移除共享 DTO 中的 `dir_name`、`project_name`、`pri_addr` 等过渡命名，使用稳定领域 ID。

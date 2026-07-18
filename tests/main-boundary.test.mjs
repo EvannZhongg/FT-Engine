@@ -14,6 +14,7 @@ test('keeps domain IPC registration out of the Main composition root', () => {
   for (const registration of [
     'registerSettingsIpc',
     'registerCompetitionIpc',
+    'registerStageIpc',
     'registerMatchIpc',
     'registerQueryIpc',
     'registerExportIpc'

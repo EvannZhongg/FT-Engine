@@ -74,19 +74,25 @@ export function normalizeUpdateInput(
   groups: unknown
 ): CompetitionUpdateInput {
   const create = normalizeCreateInput(projectName, mode)
-  if (!Array.isArray(groups) || groups.length < 1 || groups.length > 64) {
+  const normalizedGroups = normalizeCompetitionGroups(groups)
+  return { ...create, groups: normalizedGroups }
+}
+
+export function normalizeCompetitionGroups(
+  groups: unknown,
+  options: { allowEmpty?: boolean } = {}
+): CompetitionGroupConfig[] {
+  const minimum = options.allowEmpty === true ? 0 : 1
+  if (!Array.isArray(groups) || groups.length < minimum || groups.length > 64) {
     throw new Error('COMPETITION_CONFIG_INVALID')
   }
   const names = new Set<string>()
-  return {
-    ...create,
-    groups: groups.map((group) => {
-      const normalized = normalizeGroup(group)
-      if (names.has(normalized.name)) throw new Error('COMPETITION_CONFIG_INVALID')
-      names.add(normalized.name)
-      return normalized
-    })
-  }
+  return groups.map((group) => {
+    const normalized = normalizeGroup(group)
+    if (names.has(normalized.name)) throw new Error('COMPETITION_CONFIG_INVALID')
+    names.add(normalized.name)
+    return normalized
+  })
 }
 
 export function hasSameCompetitionStructure(

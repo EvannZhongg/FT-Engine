@@ -1,4 +1,4 @@
-export const LATEST_SCHEMA_VERSION = 1
+export const LATEST_SCHEMA_VERSION = 2
 export const DATABASE_APPLICATION_ID = 0x4654454e
 
 export const SCHEMA_SQL = `
@@ -8,7 +8,8 @@ export const SCHEMA_SQL = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('FREE', 'TOURNAMENT')),
-    status TEXT NOT NULL DEFAULT 'draft',
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK (status IN ('draft', 'active', 'completed', 'archived')),
     event_date TEXT,
     location TEXT,
     created_at TEXT NOT NULL,
@@ -20,8 +21,9 @@ export const SCHEMA_SQL = `
     competition_id TEXT NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     position INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft',
-    attempts INTEGER NOT NULL DEFAULT 1 CHECK (attempts > 0),
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK (status IN ('draft', 'active', 'completed')),
+    attempts INTEGER NOT NULL DEFAULT 1 CHECK (attempts BETWEEN 1 AND 20),
     UNIQUE (competition_id, position),
     UNIQUE (competition_id, name)
   ) STRICT;
@@ -41,7 +43,8 @@ export const SCHEMA_SQL = `
     group_id TEXT NOT NULL REFERENCES competition_groups(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     position INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending', 'active', 'completed', 'invalidated')),
     UNIQUE (group_id, position),
     UNIQUE (group_id, name)
   ) STRICT;
@@ -68,7 +71,8 @@ export const SCHEMA_SQL = `
     id TEXT PRIMARY KEY,
     contestant_id TEXT NOT NULL REFERENCES contestants(id) ON DELETE CASCADE,
     attempt_number INTEGER NOT NULL DEFAULT 1 CHECK (attempt_number > 0),
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending', 'active', 'completed', 'invalidated')),
     started_at TEXT,
     completed_at TEXT,
     invalidated_at TEXT,

@@ -27,10 +27,14 @@ export function resolveCompetition(
 export function findFirstStage(
   database: DatabaseSync,
   competitionId: string
-): { id: string } | null {
+): { id: string; name: string; position: number; status: string; attempts: number } | null {
   const row = database
-    .prepare('SELECT id FROM stages WHERE competition_id = ? ORDER BY position LIMIT 1')
-    .get(competitionId) as { id: string } | undefined
+    .prepare(
+      'SELECT id, name, position, status, attempts FROM stages WHERE competition_id = ? ORDER BY position LIMIT 1'
+    )
+    .get(competitionId) as
+    | { id: string; name: string; position: number; status: string; attempts: number }
+    | undefined
   return row || null
 }
 

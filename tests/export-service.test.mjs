@@ -88,6 +88,7 @@ function appendEvent(database, sourceKey, values) {
     sourceKey,
     groupName: values.groupName,
     contestantName: values.contestantName,
+    attemptNumber: values.attemptNumber ?? 1,
     refereeIndex: values.refereeIndex,
     event: {
       eventId: values.eventId,

@@ -88,6 +88,7 @@ test('scores a local competition and locks structure while allowing device rebin
       sourceKey: created.source_key,
       groupName: 'Final',
       contestantName: 'Alice',
+      attemptNumber: 1,
       referees: [
         {
           index: 1,

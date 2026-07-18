@@ -125,6 +125,7 @@ test('appends immutable score events idempotently', () => {
         sourceKey: competition.source_key,
         groupName: 'Final',
         contestantName: 'Alice',
+        attemptNumber: 1,
         refereeIndex: 1,
         event
       }),
@@ -135,6 +136,7 @@ test('appends immutable score events idempotently', () => {
         sourceKey: competition.source_key,
         groupName: 'Final',
         contestantName: 'Alice',
+        attemptNumber: 1,
         refereeIndex: 1,
         event: { ...event, currentTotal: 99 }
       }),
@@ -181,6 +183,7 @@ test('rejects score events outside the configured competition graph', () => {
         sourceKey: competition.source_key,
         groupName: 'Final',
         contestantName: 'Unknown',
+        attemptNumber: 1,
         refereeIndex: 1,
         event: {
           eventId: 'outside-context',

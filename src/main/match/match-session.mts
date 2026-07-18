@@ -24,6 +24,7 @@ export interface MatchStartInput {
   sourceKey: string
   groupName: string
   contestantName: string
+  attemptNumber: number
   referees: MatchRefereeBinding[]
 }
 
@@ -71,6 +72,7 @@ interface MatchSessionDependencies {
     sourceKey: string,
     groupName: string,
     contestantName: string,
+    attemptNumber: number,
     refereeIndexes: number[]
   ) => boolean
   emitRefereeUpdate: (update: MatchRefereeUpdate) => void
@@ -126,6 +128,7 @@ export class MatchSessionService {
   private sourceKey = ''
   private groupName = ''
   private contestantName = ''
+  private attemptNumber = 1
   private playbackAnchor: PlaybackAnchor | null = null
   private operationVersion = 0
   private controlOperationPending = false
@@ -158,6 +161,7 @@ export class MatchSessionService {
         normalized.sourceKey,
         normalized.groupName,
         normalized.contestantName,
+        normalized.attemptNumber,
         normalized.referees.map((referee) => referee.index)
       )
     ) {
@@ -288,9 +292,13 @@ export class MatchSessionService {
     if (groupName === this.groupName && contestantName === this.contestantName) return
     if (
       this.dependencies.validateContext &&
-      !this.dependencies.validateContext(this.sourceKey, groupName, contestantName, [
-        ...this.referees.keys()
-      ])
+      !this.dependencies.validateContext(
+        this.sourceKey,
+        groupName,
+        contestantName,
+        this.attemptNumber,
+        [...this.referees.keys()]
+      )
     ) {
       throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'Match context is not configured')
     }
@@ -465,6 +473,7 @@ export class MatchSessionService {
         sourceKey: this.sourceKey,
         groupName: this.groupName,
         contestantName: this.contestantName,
+        attemptNumber: this.attemptNumber,
         refereeIndex: runtime.index,
         event: {
           eventId: String(message.eventId),
@@ -512,6 +521,7 @@ export class MatchSessionService {
     this.sourceKey = input.sourceKey
     this.groupName = input.groupName
     this.contestantName = input.contestantName
+    this.attemptNumber = input.attemptNumber
     this.playbackAnchor = null
     for (const binding of input.referees) {
       const runtime: RefereeRuntime = {
@@ -693,6 +703,13 @@ function validateStartInput(input: MatchStartInput): MatchStartInput {
   }
   if (!Array.isArray(input.referees) || input.referees.length > 32) {
     throw new MatchSessionError('MATCH_CONFIG_INVALID', 'Referees must be a bounded list')
+  }
+  if (
+    !Number.isSafeInteger(input.attemptNumber) ||
+    input.attemptNumber < 1 ||
+    input.attemptNumber > 20
+  ) {
+    throw new MatchSessionError('MATCH_CONFIG_INVALID', 'Attempt number is invalid')
   }
   const indexes = new Set<number>()
   const deviceIds = new Set<string>()

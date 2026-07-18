@@ -11,6 +11,7 @@ import { WorkerClient } from './worker/worker-client.mjs'
 import { DeviceLifecycle } from './match/device-lifecycle.mjs'
 import { MatchSessionService } from './match/match-session.mts'
 import { CompetitionService } from './application/competitions/competition-service.mts'
+import { StageService } from './application/competitions/stage-service.mts'
 import { ExportService, ExportServiceError } from './application/exports/export-service.mts'
 import { registerCompetitionIpc } from './ipc/register-competitions.mts'
 import { registerExportIpc } from './ipc/register-exports.mts'
@@ -23,6 +24,7 @@ import { registerPlatformIpc } from './ipc/register-platform.mts'
 import { registerDeviceIpc } from './ipc/register-devices.mts'
 import { registerShortcutIpc } from './ipc/register-shortcuts.mts'
 import { registerAppIpc } from './ipc/register-app.mts'
+import { registerStageIpc } from './ipc/register-stages.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 import { DesktopWindowManager } from './app/windows.mts'
 import { registerAppLifecycle } from './app/lifecycle.mts'
@@ -151,6 +153,37 @@ const competitionService = new CompetitionService({
   delete: (sourceKey) => {
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
     return localDatabase.deleteCompetition(sourceKey)
+  }
+})
+
+const stageService = new StageService({
+  list: (competitionId) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.listStages(competitionId)
+  },
+  create: (competitionId, input) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.createStage(competitionId, input)
+  },
+  update: (stageId, input) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.updateStage(stageId, input)
+  },
+  reorder: (competitionId, stageIds) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.reorderStages(competitionId, stageIds)
+  },
+  delete: (stageId) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.deleteStage(stageId)
+  },
+  activate: (stageId) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.activateStage(stageId)
+  },
+  complete: (stageId) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.completeStage(stageId)
   }
 })
 
@@ -328,6 +361,7 @@ app.whenReady().then(async () => {
   }
   registerSettingsIpc(ipcContext)
   registerCompetitionIpc(ipcContext, competitionService)
+  registerStageIpc(ipcContext, stageService)
   registerMatchIpc(ipcContext, competitionService, matchSession, stopDeviceSessions)
   registerQueryIpc(ipcContext)
   registerExportIpc(ipcContext, exportService, saveExportArtifact)

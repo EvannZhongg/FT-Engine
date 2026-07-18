@@ -73,6 +73,7 @@ const startInput = {
   sourceKey: '20260718_120000_Demo',
   groupName: 'Final',
   contestantName: 'Alice',
+  attemptNumber: 1,
   referees: [
     {
       index: 1,
@@ -162,6 +163,7 @@ test('persists an event before publishing its score', async () => {
     sourceKey: startInput.sourceKey,
     groupName: 'Final',
     contestantName: 'Alice',
+    attemptNumber: 1,
     refereeIndex: 1,
     event: {
       eventId: 'event-secondary',

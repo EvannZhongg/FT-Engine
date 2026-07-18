@@ -7,13 +7,11 @@ import {
 } from '../../application/competitions/competition-service.mts'
 import type {
   CompetitionConfig,
-  CompetitionGroupConfig,
-  CompetitionListItem,
-  CompetitionRefereeConfig
+  CompetitionListItem
 } from '../../../shared/contracts/competition.mts'
 import { findFirstStage, resolveCompetition } from '../sqlite/competition-context.mts'
-import { stableDatabaseId } from '../sqlite/ids.mts'
 import type { SqliteConnection } from '../sqlite/connection.mts'
+import { readStageGroups, replaceStageGraph, updateStageBindings } from '../sqlite/stage-graph.mts'
 
 export class CompetitionRepository {
   private readonly connection: SqliteConnection
@@ -68,10 +66,12 @@ export class CompetitionRepository {
       database
         .prepare('UPDATE competitions SET name = ?, mode = ?, updated_at = ? WHERE id = ?')
         .run(input.projectName, input.mode, new Date().toISOString(), competition.id)
+      const stage = findFirstStage(database, competition.id)
+      if (!stage) throw new Error('COMPETITION_NOT_FOUND')
       if (hasEvents) {
-        this.updateBindings(database, competition.id, sourceKey, input.groups)
+        updateStageBindings(database, competition.id, stage.id, input.groups)
       } else {
-        this.replaceGraph(database, competition.id, sourceKey, input.groups)
+        replaceStageGraph(database, competition.id, stage.id, stage.attempts, input.groups)
       }
       database.exec('COMMIT')
     } catch (error) {
@@ -87,45 +87,7 @@ export class CompetitionRepository {
     if (!competition) return null
     const stage = findFirstStage(database, competition.id)
     if (!stage) return null
-    const groupRows = database
-      .prepare(
-        `
-      SELECT id, name, referee_count
-      FROM competition_groups WHERE stage_id = ? ORDER BY position
-    `
-      )
-      .all(stage.id) as Array<{ id: string; name: string; referee_count: number }>
-    const groups = groupRows.map((group) => {
-      const players = database
-        .prepare('SELECT name FROM contestants WHERE group_id = ? ORDER BY position')
-        .all(group.id) as Array<{ name: string }>
-      const referees = database
-        .prepare(
-          `
-        SELECT r.referee_index, r.name, r.mode,
-          MAX(CASE WHEN db.role = 'primary' THEN db.device_id ELSE '' END) AS pri_addr,
-          MAX(CASE WHEN db.role = 'secondary' THEN db.device_id ELSE '' END) AS sec_addr
-        FROM referees r
-        LEFT JOIN device_bindings db ON db.referee_id = r.id
-        WHERE r.group_id = ?
-        GROUP BY r.id
-        ORDER BY r.referee_index
-      `
-        )
-        .all(group.id) as Array<Record<string, string | number>>
-      return {
-        name: group.name,
-        refCount: Number(group.referee_count),
-        players: players.map((player) => player.name),
-        referees: referees.map((referee) => ({
-          index: Number(referee.referee_index),
-          name: String(referee.name),
-          mode: referee.mode === 'DUAL' ? ('DUAL' as const) : ('SINGLE' as const),
-          pri_addr: String(referee.pri_addr || ''),
-          sec_addr: String(referee.sec_addr || '')
-        }))
-      }
-    })
+    const groups = readStageGroups(database, stage.id)
     const mediaRows = database
       .prepare(
         `
@@ -180,8 +142,12 @@ export class CompetitionRepository {
     sourceKey: string,
     groupName: string,
     contestantName: string,
+    attemptNumber: number,
     refereeIndexes: number[]
   ): boolean {
+    const database = this.connection.requireDatabase()
+    const stage = findFirstStage(database, sourceKey)
+    if (!stage || attemptNumber < 1 || attemptNumber > stage.attempts) return false
     const config = this.getConfig(sourceKey)
     const group = config?.groups.find((value) => value.name === groupName)
     if (!group || !group.players.includes(contestantName)) return false
@@ -210,124 +176,5 @@ export class CompetitionRepository {
       )
       .get(competitionId) as { count: number }
     return Number(row.count)
-  }
-
-  private replaceGraph(
-    database: DatabaseSync,
-    competitionId: string,
-    sourceKey: string,
-    groups: CompetitionGroupConfig[]
-  ): void {
-    const stage = findFirstStage(database, competitionId)
-    if (!stage) throw new Error('COMPETITION_NOT_FOUND')
-    database.prepare('DELETE FROM competition_groups WHERE stage_id = ?').run(stage.id)
-    groups.forEach((group, groupPosition) => {
-      const groupId = stableDatabaseId(sourceKey, 'group', String(groupPosition), group.name)
-      database
-        .prepare(
-          `
-        INSERT INTO competition_groups (id, stage_id, name, position, referee_count)
-        VALUES (?, ?, ?, ?, ?)
-      `
-        )
-        .run(groupId, stage.id, group.name, groupPosition, group.refCount)
-      group.players.forEach((playerName, playerPosition) => {
-        const contestantId = stableDatabaseId(
-          sourceKey,
-          groupId,
-          'contestant',
-          String(playerPosition),
-          playerName
-        )
-        database
-          .prepare(
-            `
-          INSERT INTO contestants (id, group_id, name, position, status)
-          VALUES (?, ?, ?, ?, 'pending')
-        `
-          )
-          .run(contestantId, groupId, playerName, playerPosition)
-        database
-          .prepare(
-            `
-          INSERT INTO match_sessions (id, contestant_id, attempt_number, status, rule_version)
-          VALUES (?, ?, 1, 'pending', 'route-b-v1')
-        `
-          )
-          .run(stableDatabaseId(sourceKey, contestantId, 'session', '1'), contestantId)
-      })
-      group.referees.forEach((referee) => {
-        const refereeId = stableDatabaseId(sourceKey, groupId, 'referee', String(referee.index))
-        database
-          .prepare(
-            `
-          INSERT INTO referees (id, group_id, referee_index, name, mode)
-          VALUES (?, ?, ?, ?, ?)
-        `
-          )
-          .run(refereeId, groupId, referee.index, referee.name, referee.mode)
-        this.writeDeviceBindings(database, sourceKey, refereeId, referee)
-      })
-    })
-  }
-
-  private updateBindings(
-    database: DatabaseSync,
-    competitionId: string,
-    sourceKey: string,
-    groups: CompetitionGroupConfig[]
-  ): void {
-    for (const group of groups) {
-      const row = database
-        .prepare(
-          `
-        SELECT g.id
-        FROM stages s
-        JOIN competition_groups g ON g.stage_id = s.id
-        WHERE s.competition_id = ? AND g.name = ?
-        LIMIT 1
-      `
-        )
-        .get(competitionId, group.name) as { id: string } | undefined
-      if (!row) throw new Error('COMPETITION_STRUCTURE_LOCKED')
-      for (const referee of group.referees) {
-        const stored = database
-          .prepare('SELECT id FROM referees WHERE group_id = ? AND referee_index = ?')
-          .get(row.id, referee.index) as { id: string } | undefined
-        if (!stored) throw new Error('COMPETITION_STRUCTURE_LOCKED')
-        database.prepare('DELETE FROM device_bindings WHERE referee_id = ?').run(stored.id)
-        this.writeDeviceBindings(database, sourceKey, stored.id, referee)
-      }
-    }
-  }
-
-  private writeDeviceBindings(
-    database: DatabaseSync,
-    sourceKey: string,
-    refereeId: string,
-    referee: CompetitionRefereeConfig
-  ): void {
-    for (const [role, deviceId] of [
-      ['primary', referee.pri_addr],
-      ['secondary', referee.mode === 'DUAL' ? referee.sec_addr : '']
-    ] as const) {
-      if (!deviceId) continue
-      const transport =
-        deviceId.startsWith('usb:') || deviceId.startsWith('usbport:') ? 'USB' : 'BLE'
-      database
-        .prepare(
-          `
-        INSERT INTO device_bindings (id, referee_id, role, device_id, transport)
-        VALUES (?, ?, ?, ?, ?)
-      `
-        )
-        .run(
-          stableDatabaseId(sourceKey, refereeId, 'device', role),
-          refereeId,
-          role,
-          deviceId,
-          transport
-        )
-    }
   }
 }

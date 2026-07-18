@@ -59,6 +59,15 @@ const IPC_CHANNELS = {
     list: 'projects:list',
     delete: 'projects:delete'
   },
+  stages: {
+    list: 'stages:list',
+    create: 'stages:create',
+    update: 'stages:update',
+    reorder: 'stages:reorder',
+    delete: 'stages:delete',
+    activate: 'stages:activate',
+    complete: 'stages:complete'
+  },
   exports: {
     saveDetails: 'exports:save-details',
     saveReport: 'exports:save-report'
@@ -141,6 +150,17 @@ const ftEngine = {
     get: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.projects.get, sourceKey),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),
     delete: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.projects.delete, sourceKey)
+  },
+  stages: {
+    list: (competitionId) => ipcRenderer.invoke(IPC_CHANNELS.stages.list, competitionId),
+    create: (competitionId, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.stages.create, competitionId, input),
+    update: (stageId, input) => ipcRenderer.invoke(IPC_CHANNELS.stages.update, stageId, input),
+    reorder: (competitionId, stageIds) =>
+      ipcRenderer.invoke(IPC_CHANNELS.stages.reorder, competitionId, stageIds),
+    delete: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.delete, stageId),
+    activate: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.activate, stageId),
+    complete: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.complete, stageId)
   },
   exports: {
     saveDetails: (request) => ipcRenderer.invoke(IPC_CHANNELS.exports.saveDetails, request),

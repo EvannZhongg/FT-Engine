@@ -28,6 +28,7 @@ export interface MatchScoreEventWrite {
   sourceKey: string
   groupName: string
   contestantName: string
+  attemptNumber: number
   refereeIndex: number
   event: Omit<StoredScoreEvent, 'matchSessionId' | 'refereeId'>
 }
@@ -46,6 +47,13 @@ export class MatchRepository {
 
   appendScoreEvent(input: MatchScoreEventWrite): MatchScoreEventWriteResult {
     validateScoreEvent(input.event)
+    if (
+      !Number.isSafeInteger(input.attemptNumber) ||
+      input.attemptNumber < 1 ||
+      input.attemptNumber > 20
+    ) {
+      throw new Error('MATCH_ATTEMPT_INVALID')
+    }
     const database = this.connection.requireDatabase()
     database.exec('BEGIN IMMEDIATE')
     try {
@@ -54,6 +62,20 @@ export class MatchRepository {
         database.exec('ROLLBACK')
         return { status: 'context_missing' }
       }
+      const activeStage = database
+        .prepare(
+          "SELECT id FROM stages WHERE competition_id = ? AND status = 'active' AND id <> ? LIMIT 1"
+        )
+        .get(context.competitionId, context.stageId)
+      if (activeStage) throw new Error('MATCH_STAGE_CONFLICT')
+      database
+        .prepare("UPDATE stages SET status = 'active' WHERE id = ? AND status = 'draft'")
+        .run(context.stageId)
+      database
+        .prepare(
+          "UPDATE competitions SET status = 'active', updated_at = ? WHERE id = ? AND status = 'draft'"
+        )
+        .run(input.event.systemTime, context.competitionId)
       database
         .prepare(
           `
@@ -139,25 +161,48 @@ export class MatchRepository {
   private resolveContext(
     database: DatabaseSync,
     input: MatchScoreEventWrite
-  ): { matchSessionId: string; refereeId: string } | null {
+  ): { competitionId: string; stageId: string; matchSessionId: string; refereeId: string } | null {
     const row = database
       .prepare(
         `
-      SELECT ms.id AS match_session_id, r.id AS referee_id
+      SELECT c.id AS competition_id, s.id AS stage_id,
+        ms.id AS match_session_id, r.id AS referee_id
       FROM competitions c
       JOIN stages s ON s.competition_id = c.id
       JOIN competition_groups g ON g.stage_id = s.id
       JOIN contestants p ON p.group_id = g.id
-      JOIN match_sessions ms ON ms.contestant_id = p.id AND ms.attempt_number = 1
+      JOIN match_sessions ms ON ms.contestant_id = p.id AND ms.attempt_number = ?
       JOIN referees r ON r.group_id = g.id AND r.referee_index = ?
       WHERE c.id = ? AND g.name = ? AND p.name = ?
+        AND c.status NOT IN ('completed', 'archived')
+        AND s.status <> 'completed'
+        AND ms.status IN ('pending', 'active')
+      ORDER BY s.position
       LIMIT 1
     `
       )
-      .get(input.refereeIndex, input.sourceKey, input.groupName, input.contestantName) as
-      | { match_session_id: string; referee_id: string }
+      .get(
+        input.attemptNumber,
+        input.refereeIndex,
+        input.sourceKey,
+        input.groupName,
+        input.contestantName
+      ) as
+      | {
+          competition_id: string
+          stage_id: string
+          match_session_id: string
+          referee_id: string
+        }
       | undefined
-    return row ? { matchSessionId: row.match_session_id, refereeId: row.referee_id } : null
+    return row
+      ? {
+          competitionId: row.competition_id,
+          stageId: row.stage_id,
+          matchSessionId: row.match_session_id,
+          refereeId: row.referee_id
+        }
+      : null
   }
 
   private insertScoreEvent(database: DatabaseSync, event: StoredScoreEvent): boolean {

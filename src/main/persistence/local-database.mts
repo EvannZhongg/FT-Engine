@@ -5,6 +5,7 @@ import type {
 import type { CompetitionExportSnapshot } from '../application/exports/export-service.mts'
 import type { AppSettings } from '../application/settings/app-settings.mts'
 import type { CompetitionConfig, CompetitionListItem } from '../../shared/contracts/competition.mts'
+import type { CompetitionStageConfig, StageConfigInput } from '../../shared/contracts/stage.mts'
 import { ExportQuery } from './queries/export-query.mts'
 import { ReplayQuery, type ReplayEvent } from './queries/replay-query.mts'
 import { ReportQuery, type CompetitionReport } from './queries/report-query.mts'
@@ -16,6 +17,7 @@ import {
   type StoredScoreEvent
 } from './repositories/match-repository.mts'
 import { SettingsRepository } from './repositories/settings-repository.mts'
+import { StageRepository } from './repositories/stage-repository.mts'
 import { SqliteConnection } from './sqlite/connection.mts'
 
 export { DATABASE_APPLICATION_ID, LATEST_SCHEMA_VERSION } from './sqlite/schema.mts'
@@ -32,6 +34,7 @@ export class LocalDatabase {
   private readonly competitions: CompetitionRepository
   private readonly matches: MatchRepository
   private readonly settings: SettingsRepository
+  private readonly stages: StageRepository
   private readonly replay: ReplayQuery
   private readonly reports: ReportQuery
   private readonly exports: ExportQuery
@@ -41,6 +44,7 @@ export class LocalDatabase {
     this.competitions = new CompetitionRepository(this.connection)
     this.matches = new MatchRepository(this.connection)
     this.settings = new SettingsRepository(this.connection)
+    this.stages = new StageRepository(this.connection)
     this.replay = new ReplayQuery(this.connection)
     this.reports = new ReportQuery(this.connection, this.competitions)
     this.exports = new ExportQuery(this.connection, this.competitions)
@@ -102,13 +106,48 @@ export class LocalDatabase {
     return this.competitions.delete(sourceKey)
   }
 
+  listStages(competitionId: string): CompetitionStageConfig[] {
+    return this.stages.list(competitionId)
+  }
+
+  createStage(competitionId: string, input: StageConfigInput): CompetitionStageConfig {
+    return this.stages.create(competitionId, input)
+  }
+
+  updateStage(stageId: string, input: StageConfigInput): CompetitionStageConfig {
+    return this.stages.update(stageId, input)
+  }
+
+  reorderStages(competitionId: string, stageIds: string[]): CompetitionStageConfig[] {
+    return this.stages.reorder(competitionId, stageIds)
+  }
+
+  deleteStage(stageId: string): boolean {
+    return this.stages.delete(stageId)
+  }
+
+  activateStage(stageId: string): CompetitionStageConfig {
+    return this.stages.activate(stageId)
+  }
+
+  completeStage(stageId: string): CompetitionStageConfig {
+    return this.stages.complete(stageId)
+  }
+
   hasMatchContext(
     sourceKey: string,
     groupName: string,
     contestantName: string,
+    attemptNumber: number,
     refereeIndexes: number[]
   ): boolean {
-    return this.competitions.hasMatchContext(sourceKey, groupName, contestantName, refereeIndexes)
+    return this.competitions.hasMatchContext(
+      sourceKey,
+      groupName,
+      contestantName,
+      attemptNumber,
+      refereeIndexes
+    )
   }
 
   appendMatchScoreEvent(input: MatchScoreEventWrite): MatchScoreEventWriteResult {

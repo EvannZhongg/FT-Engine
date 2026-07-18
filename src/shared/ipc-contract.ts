@@ -10,6 +10,7 @@ import type {
   ExportSaveResult,
   ReportExportRequest
 } from './contracts/export.mts'
+import type { CompetitionStageConfig, StageConfigInput } from './contracts/stage.mts'
 
 export const IPC_CHANNELS = {
   app: {
@@ -66,6 +67,15 @@ export const IPC_CHANNELS = {
     get: 'projects:get',
     list: 'projects:list',
     delete: 'projects:delete'
+  },
+  stages: {
+    list: 'stages:list',
+    create: 'stages:create',
+    update: 'stages:update',
+    reorder: 'stages:reorder',
+    delete: 'stages:delete',
+    activate: 'stages:activate',
+    complete: 'stages:complete'
   },
   exports: {
     saveDetails: 'exports:save-details',
@@ -173,6 +183,7 @@ export interface MatchStartInput {
   sourceKey: string
   groupName: string
   contestantName: string
+  attemptNumber: number
   referees: MatchRefereeBinding[]
 }
 
@@ -333,6 +344,15 @@ export interface FtEngineApi {
     get: (sourceKey: string) => Promise<CompetitionConfig | null>
     list: () => Promise<CompetitionListItem[]>
     delete: (sourceKey: string) => Promise<boolean>
+  }
+  stages: {
+    list: (competitionId: string) => Promise<CompetitionStageConfig[]>
+    create: (competitionId: string, input: StageConfigInput) => Promise<CompetitionStageConfig>
+    update: (stageId: string, input: StageConfigInput) => Promise<CompetitionStageConfig>
+    reorder: (competitionId: string, stageIds: string[]) => Promise<CompetitionStageConfig[]>
+    delete: (stageId: string) => Promise<boolean>
+    activate: (stageId: string) => Promise<CompetitionStageConfig>
+    complete: (stageId: string) => Promise<CompetitionStageConfig>
   }
   exports: {
     saveDetails: (request: DetailExportRequest) => Promise<ExportSaveResult>

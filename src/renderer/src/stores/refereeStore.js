@@ -226,6 +226,7 @@ export const useRefereeStore = defineStore('referee', {
             sourceKey: this.projectConfig.source_key,
             groupName: this.currentContext.groupName,
             contestantName: this.currentContext.contestantName,
+            attemptNumber: 1,
             referees: config.referees.map((referee) => ({
               index: referee.index,
               name: referee.name || `Referee ${referee.index}`,
