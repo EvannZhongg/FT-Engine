@@ -1,0 +1,39 @@
+[
+  {
+    "name": "single plus and minus",
+    "mode": "SINGLE",
+    "events": [
+      {"eventId": "single-1", "role": "primary", "eventType": 1, "totalPlus": 4, "totalMinus": 1, "deviceTimestampMs": 100}
+    ],
+    "expected": {"total": 3, "plus": 4, "minus": 1, "penalty": 0}
+  },
+  {
+    "name": "dual score and major penalties",
+    "mode": "DUAL",
+    "events": [
+      {"eventId": "dual-1", "role": "primary", "eventType": 1, "totalPlus": 5, "totalMinus": 2, "deviceTimestampMs": 100},
+      {"eventId": "dual-2", "role": "secondary", "eventType": -1, "totalPlus": 3, "totalMinus": 4, "deviceTimestampMs": 110}
+    ],
+    "expected": {"total": 2, "plus": 5, "minus": 3, "penalty": 6}
+  },
+  {
+    "name": "dual reset notifications",
+    "mode": "DUAL",
+    "events": [
+      {"eventId": "reset-1", "role": "primary", "eventType": 1, "totalPlus": 2, "totalMinus": 1, "deviceTimestampMs": 100},
+      {"eventId": "reset-2", "role": "secondary", "eventType": 1, "totalPlus": 1, "totalMinus": 2, "deviceTimestampMs": 110},
+      {"eventId": "reset-3", "role": "primary", "eventType": 0, "totalPlus": 0, "totalMinus": 0, "deviceTimestampMs": 120},
+      {"eventId": "reset-4", "role": "secondary", "eventType": 0, "totalPlus": 0, "totalMinus": 0, "deviceTimestampMs": 130}
+    ],
+    "expected": {"total": 0, "plus": 0, "minus": 0, "penalty": 0}
+  },
+  {
+    "name": "duplicate absolute snapshot",
+    "mode": "SINGLE",
+    "events": [
+      {"eventId": "duplicate-1", "role": "primary", "eventType": 1, "totalPlus": 1, "totalMinus": 0, "deviceTimestampMs": 100},
+      {"eventId": "duplicate-1", "role": "primary", "eventType": 1, "totalPlus": 1, "totalMinus": 0, "deviceTimestampMs": 100}
+    ],
+    "expected": {"total": 1, "plus": 1, "minus": 0, "penalty": 0}
+  }
+]
