@@ -145,8 +145,7 @@ const ftEngine = {
     get: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.reports.get, sourceKey)
   },
   projects: {
-    create: (projectName, mode) =>
-      ipcRenderer.invoke(IPC_CHANNELS.projects.create, projectName, mode),
+    create: (name, mode) => ipcRenderer.invoke(IPC_CHANNELS.projects.create, name, mode),
     update: (sourceKey, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.projects.update, sourceKey, input),
     get: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.projects.get, sourceKey),

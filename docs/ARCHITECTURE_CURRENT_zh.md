@@ -47,7 +47,7 @@ Renderer projects.create/update
   -> report/replay SQLite query
 ~~~
 
-项目只存在于 SQLite。创建项目时仍生成一个初始 `Main` Stage；StageService 已支持配置、多 Stage 新建/删除/排序、1～20 次尝试以及 draft/active/completed 状态，typed IPC 和 preload 已开放对应能力。当前 Renderer 仍只编辑和运行排序第一的 Stage，并继续使用 `project_name/mode/groups/refCount/players/referees` 过渡 DTO，多 Stage UI 尚未接入。
+项目只存在于 SQLite。创建项目时仍生成一个初始 `Main` Stage；StageService 已支持配置、多 Stage 新建/删除/排序、1～20 次尝试以及 draft/active/completed 状态，typed IPC 和 preload 已开放对应能力。Competition DTO 已统一为 `id/name/createdAt`，设备绑定统一为 `primaryDeviceId/secondaryDeviceId`，生产源码不再包含 `dir_name/project_name/source_key/pri_addr/sec_addr`。当前 Renderer 仍只编辑和运行排序第一的 Stage，多 Stage UI 尚未接入。
 
 数据库使用 application ID 和 clean schema v3；Competition、Stage、Contestant 和 MatchSession 状态受 CHECK 约束，`match_session_transitions` 追加保存 start/context_switch/finish/invalidate 审计。检测到旧 schema 时先写入 `backups/`，随后重建空库；不读取或导入旧项目目录、CSV 或旧表。
 
@@ -87,7 +87,7 @@ Renderer projects.create/update
 
 2026-07-19 当前工作树检查：
 
-- `npm test`：86/86 通过。
+- `npm test`：87/87 通过。
 - `npm run typecheck`：通过，覆盖全部 Main `.mts` 模块。
 - `npm run lint`：0 error；历史换行和格式 warning 尚未批量清理。
 - `python -m unittest discover -s tests`：17/17 通过，仅包含 Platform Worker。

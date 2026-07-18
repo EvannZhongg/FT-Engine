@@ -64,8 +64,8 @@ export class ExportQuery {
         events.set(key, values)
       }
       const snapshot: CompetitionExportSnapshot = {
-        sourceKey: config.source_key,
-        competitionName: config.project_name,
+        sourceKey: config.id,
+        competitionName: config.name,
         groups: config.groups.map((group) => ({
           name: group.name,
           refCount: group.refCount,

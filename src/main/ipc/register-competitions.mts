@@ -7,9 +7,9 @@ export function registerCompetitionIpc(
   context: IpcRegistrationContext,
   competitionService: CompetitionService
 ): void {
-  ipcMain.handle(IPC_CHANNELS.projects.create, (event, projectName, mode) => {
+  ipcMain.handle(IPC_CHANNELS.projects.create, (event, name, mode) => {
     context.assertMainSender(event)
-    return competitionService.create(projectName, mode)
+    return competitionService.create(name, mode)
   })
 
   ipcMain.handle(IPC_CHANNELS.projects.update, (event, sourceKey, input) => {

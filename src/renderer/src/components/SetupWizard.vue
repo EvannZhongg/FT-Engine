@@ -152,7 +152,7 @@
             </div>
             <div class="row">
               <label>{{ $t('lbl_pri') }}</label>
-              <select v-model="bind.pri_addr">
+              <select v-model="bind.primaryDeviceId">
                 <option value="">{{ $t('opt_select_default') }}</option>
                 <option v-for="d in getAvailableDevices(index, 'pri')" :key="d.address" :value="d.address">
                   {{ getDeviceDisplayName(d) }}
@@ -161,7 +161,7 @@
             </div>
             <div class="row" v-if="bind.mode === 'DUAL'">
               <label>{{ $t('lbl_sec') }}</label>
-              <select v-model="bind.sec_addr">
+              <select v-model="bind.secondaryDeviceId">
                 <option value="">{{ $t('opt_select_default') }}</option>
                 <option v-for="d in getAvailableDevices(index, 'sec')" :key="d.address" :value="d.address">
                   {{ getDeviceDisplayName(d) }}
@@ -323,7 +323,7 @@ const bindings = ref([])
 const isConnecting = ref(false)
 const showForceEntry = ref(false)
 let connectTimer = null
-const isResuming = computed(() => !!store.projectConfig.created_at)
+const isResuming = computed(() => !!store.projectConfig.createdAt)
 
 // --- 导入功能相关状态 ---
 const fileInput = ref(null)
@@ -342,7 +342,7 @@ const selectedRenameCount = computed(() => renameCandidates.value.filter(item =>
 
 onMounted(async () => {
   if (isResuming.value) {
-    form.projectName = store.projectConfig.project_name
+    form.projectName = store.projectConfig.name
     form.mode = store.projectConfig.mode
     if (store.projectConfig.groups && store.projectConfig.groups.length > 0) {
       groups.value = store.projectConfig.groups.map(g => ({ ...g, rawPlayers: (g.players || []).join('\n') }))
@@ -395,7 +395,7 @@ const confirmImport = () => {
 // --- Step 1 & 2 Logic ---
 const handleStep1Next = async () => {
     try {
-        if (!isResuming.value) { await store.createProject(form.projectName, form.mode) } else { store.projectConfig.mode = form.mode; store.projectConfig.project_name = form.projectName; }
+        if (!isResuming.value) { await store.createProject(form.projectName, form.mode) } else { store.projectConfig.mode = form.mode; store.projectConfig.name = form.projectName; }
         if (groups.value.length === 0) {
             if (form.mode === 'TOURNAMENT') { addNewGroup() } else { const freeGroup = { name: 'Free Mode', refCount: form.refereeCount, rawPlayers: 'Player 1', players: ['Player 1'], referees: [] }; groups.value = [freeGroup] }
         } else { if (isResuming.value && form.mode === 'FREE') { groups.value[0].refCount = form.refereeCount } }
@@ -414,11 +414,11 @@ const refreshBindingSlots = () => {
   if (targetGroup.referees && targetGroup.referees.length > 0) {
     bindings.value = JSON.parse(JSON.stringify(targetGroup.referees))
     if (bindings.value.length < count) {
-      for (let i = bindings.value.length; i < count; i++) bindings.value.push({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', pri_addr: '', sec_addr: '' })
+      for (let i = bindings.value.length; i < count; i++) bindings.value.push({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', primaryDeviceId: '', secondaryDeviceId: '' })
     }
     if (bindings.value.length > count) bindings.value = bindings.value.slice(0, count)
   } else {
-    bindings.value = Array.from({ length: count }, (_, i) => ({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', pri_addr: '', sec_addr: '' }))
+    bindings.value = Array.from({ length: count }, (_, i) => ({ index: i + 1, name: `Referee ${i + 1}`, mode: 'SINGLE', primaryDeviceId: '', secondaryDeviceId: '' }))
   }
 }
 
@@ -442,8 +442,8 @@ const startScan = async (isRefresh = true) => {
 const getAvailableDevices = (currentIndex, currentType) => {
   const used = new Set()
   bindings.value.forEach((b, idx) => {
-    if (b.pri_addr && (idx !== currentIndex || currentType !== 'pri')) used.add(b.pri_addr)
-    if (b.mode === 'DUAL' && b.sec_addr && (idx !== currentIndex || currentType !== 'sec')) used.add(b.sec_addr)
+    if (b.primaryDeviceId && (idx !== currentIndex || currentType !== 'pri')) used.add(b.primaryDeviceId)
+    if (b.mode === 'DUAL' && b.secondaryDeviceId && (idx !== currentIndex || currentType !== 'sec')) used.add(b.secondaryDeviceId)
   })
   return scannedDevices.value.filter(d => !used.has(d.address))
 }
@@ -554,7 +554,7 @@ const confirmPermanentRename = async () => {
   }
 }
 
-const onModeChange = (binding) => { if (binding.mode === 'SINGLE') binding.sec_addr = '' }
+const onModeChange = (binding) => { if (binding.mode === 'SINGLE') binding.secondaryDeviceId = '' }
 const goBackFromStep3 = () => { if (form.mode === 'TOURNAMENT') currentStep.value = 2; else currentStep.value = 1 }
 const finishSetup = async () => {
   if (selectedGroupToRun.value) { selectedGroupToRun.value.referees = JSON.parse(JSON.stringify(bindings.value)); await store.updateGroups(groups.value) }
@@ -564,7 +564,7 @@ const finishSetup = async () => {
 }
 
 const getRefStatus = (index, role) => { const r = store.referees[index]; if (!r || !r.status) return 'waiting'; return r.status[role] }
-const checkAllConnected = () => { for (const b of bindings.value) { const status = store.referees[b.index]?.status; if (!status) return false; if (b.pri_addr && status.pri !== 'connected') return false; if (b.mode === 'DUAL' && b.sec_addr && status.sec !== 'connected') return false } return true }
+const checkAllConnected = () => { for (const b of bindings.value) { const status = store.referees[b.index]?.status; if (!status) return false; if (b.primaryDeviceId && status.pri !== 'connected') return false; if (b.mode === 'DUAL' && b.secondaryDeviceId && status.sec !== 'connected') return false } return true }
 const checkAnyError = () => { for (const b of bindings.value) { const status = store.referees[b.index]?.status; if (status && (status.pri === 'error' || status.sec === 'error')) return true } return false }
 const cancelConnect = () => { clearInterval(connectTimer); isConnecting.value = false; store.stopMatch() }
 const confirmForceEnter = async () => { clearInterval(connectTimer); await store.resetAll(); isConnecting.value = false; emit('finished') }

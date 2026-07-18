@@ -29,8 +29,8 @@ function createFixture() {
     delete: (sourceKey) => database.deleteCompetition(sourceKey)
   })
   const competition = competitions.create('Export Event', 'TOURNAMENT')
-  competitions.update(competition.source_key, {
-    projectName: 'Export Event',
+  competitions.update(competition.id, {
+    name: 'Export Event',
     mode: 'TOURNAMENT',
     groups: [
       {
@@ -42,15 +42,15 @@ function createFixture() {
             index: 1,
             name: 'Judge One',
             mode: 'SINGLE',
-            pri_addr: 'device-1',
-            sec_addr: ''
+            primaryDeviceId: 'device-1',
+            secondaryDeviceId: ''
           },
           {
             index: 2,
             name: 'Judge Two',
             mode: 'DUAL',
-            pri_addr: 'device-2a',
-            sec_addr: 'device-2b'
+            primaryDeviceId: 'device-2a',
+            secondaryDeviceId: 'device-2b'
           }
         ]
       },
@@ -63,8 +63,8 @@ function createFixture() {
             index: 1,
             name: 'Judge Q',
             mode: 'SINGLE',
-            pri_addr: 'device-q',
-            sec_addr: ''
+            primaryDeviceId: 'device-q',
+            secondaryDeviceId: ''
           }
         ]
       }
@@ -110,7 +110,7 @@ function appendEvent(database, sourceKey, values) {
 
 function seedScores(fixture) {
   const base = {
-    sourceKey: fixture.competition.source_key,
+    sourceKey: fixture.competition.id,
     groupName: 'Final',
     contestantName: 'Alice, Jr',
     refereeIndex: 1,
@@ -118,7 +118,7 @@ function seedScores(fixture) {
     refereeMode: 'SINGLE',
     majorPenalty: 0
   }
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     eventId: 'alice-ref1-1',
     systemTime: '2026-07-18T10:00:00.000Z',
@@ -127,7 +127,7 @@ function seedScores(fixture) {
     totalMinus: 0,
     currentTotal: 1
   })
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     eventId: 'alice-ref1-2',
     systemTime: '2026-07-18T10:00:00.200Z',
@@ -136,7 +136,7 @@ function seedScores(fixture) {
     totalMinus: 0,
     currentTotal: 2
   })
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     eventId: 'alice-ref1-3',
     systemTime: '2026-07-18T10:00:01.400Z',
@@ -145,7 +145,7 @@ function seedScores(fixture) {
     totalMinus: 0,
     currentTotal: 10
   })
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     refereeIndex: 2,
     refereeName: 'Judge Two',
@@ -158,7 +158,7 @@ function seedScores(fixture) {
     currentTotal: 8,
     majorPenalty: 2
   })
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     contestantName: 'Bob',
     eventId: 'bob-ref1-1',
@@ -168,7 +168,7 @@ function seedScores(fixture) {
     totalMinus: 0,
     currentTotal: 5
   })
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     contestantName: 'Bob',
     refereeIndex: 2,
@@ -182,7 +182,7 @@ function seedScores(fixture) {
     currentTotal: 4,
     majorPenalty: 1
   })
-  appendEvent(fixture.database, fixture.competition.source_key, {
+  appendEvent(fixture.database, fixture.competition.id, {
     ...base,
     groupName: 'Qualifier',
     contestantName: 'Casey',
@@ -206,7 +206,7 @@ test('builds scoped CSV and SRT files from one SQLite competition snapshot', () 
     seedScores(fixture)
     const artifact = fixture.exports.buildDetails({
       scope: {
-        sourceKey: fixture.competition.source_key,
+        sourceKey: fixture.competition.id,
         groupNames: ['Final'],
         contestantNames: ['Alice, Jr'],
         refereeIndexes: [1]
@@ -238,7 +238,7 @@ test('supports whole-competition and referee scopes from SQLite', () => {
     seedScores(fixture)
     const artifact = fixture.exports.buildDetails({
       scope: {
-        sourceKey: fixture.competition.source_key,
+        sourceKey: fixture.competition.id,
         refereeIndexes: [1]
       },
       includeCsv: true,
@@ -262,7 +262,7 @@ test('generates raw and scaled report CSV with escaping and dual-referee penalti
     seedScores(fixture)
     const raw = strFromU8(
       fixture.exports.buildReport({
-        sourceKey: fixture.competition.source_key,
+        sourceKey: fixture.competition.id,
         groupName: 'Final',
         view: 'RAW',
         scaleRatio: 60,
@@ -273,7 +273,7 @@ test('generates raw and scaled report CSV with escaping and dual-referee penalti
 
     const scaled = strFromU8(
       fixture.exports.buildReport({
-        sourceKey: fixture.competition.source_key,
+        sourceKey: fixture.competition.id,
         groupName: 'Final',
         view: 'SCALED',
         scaleRatio: 60,
@@ -313,7 +313,7 @@ test('keeps SRT timing on system timestamps and rejects empty detail scopes', ()
   try {
     const emptyReport = strFromU8(
       fixture.exports.buildReport({
-        sourceKey: fixture.competition.source_key,
+        sourceKey: fixture.competition.id,
         groupName: 'Final',
         view: 'RAW',
         scaleRatio: 60,
@@ -325,7 +325,7 @@ test('keeps SRT timing on system timestamps and rejects empty detail scopes', ()
       () =>
         fixture.exports.buildDetails({
           scope: {
-            sourceKey: fixture.competition.source_key,
+            sourceKey: fixture.competition.id,
             groupNames: ['Final'],
             contestantNames: ['Bob']
           },

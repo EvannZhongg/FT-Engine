@@ -22,8 +22,8 @@ export function readStageGroups(database: DatabaseSync, stageId: string): Compet
       .prepare(
         `
         SELECT r.referee_index, r.name, r.mode,
-          MAX(CASE WHEN db.role = 'primary' THEN db.device_id ELSE '' END) AS pri_addr,
-          MAX(CASE WHEN db.role = 'secondary' THEN db.device_id ELSE '' END) AS sec_addr
+          MAX(CASE WHEN db.role = 'primary' THEN db.device_id ELSE '' END) AS primary_device_id,
+          MAX(CASE WHEN db.role = 'secondary' THEN db.device_id ELSE '' END) AS secondary_device_id
         FROM referees r
         LEFT JOIN device_bindings db ON db.referee_id = r.id
         WHERE r.group_id = ?
@@ -40,8 +40,8 @@ export function readStageGroups(database: DatabaseSync, stageId: string): Compet
         index: Number(referee.referee_index),
         name: String(referee.name),
         mode: referee.mode === 'DUAL' ? ('DUAL' as const) : ('SINGLE' as const),
-        pri_addr: String(referee.pri_addr || ''),
-        sec_addr: String(referee.sec_addr || '')
+        primaryDeviceId: String(referee.primary_device_id || ''),
+        secondaryDeviceId: String(referee.secondary_device_id || '')
       }))
     }
   })
@@ -154,8 +154,8 @@ function writeDeviceBindings(
   referee: CompetitionRefereeConfig
 ): void {
   for (const [role, deviceId] of [
-    ['primary', referee.pri_addr],
-    ['secondary', referee.mode === 'DUAL' ? referee.sec_addr : '']
+    ['primary', referee.primaryDeviceId],
+    ['secondary', referee.mode === 'DUAL' ? referee.secondaryDeviceId : '']
   ] as const) {
     if (!deviceId) continue
     const transport = deviceId.startsWith('usb:') || deviceId.startsWith('usbport:') ? 'USB' : 'BLE'

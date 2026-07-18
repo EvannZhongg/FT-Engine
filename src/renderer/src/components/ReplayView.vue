@@ -16,8 +16,8 @@
           <span>{{ $t('replay_project') }}</span>
           <select v-model="selectedProjectDir">
             <option value="" disabled>{{ $t('replay_select_project') }}</option>
-            <option v-for="project in projects" :key="project.dir_name" :value="project.dir_name">
-              {{ project.project_name }}
+            <option v-for="project in projects" :key="project.id" :value="project.id">
+              {{ project.name }}
             </option>
           </select>
         </label>
@@ -134,9 +134,9 @@ const playerRef = ref(null)
 let requestSequence = 0
 
 const selectedProject = computed(() =>
-  projects.value.find((project) => project.dir_name === selectedProjectDir.value)
+  projects.value.find((project) => project.id === selectedProjectDir.value)
 )
-const selectedProjectName = computed(() => selectedProject.value?.project_name || '')
+const selectedProjectName = computed(() => selectedProject.value?.name || '')
 const availableGroups = computed(() => selectedProject.value?.groups || [])
 const currentGroup = computed(() =>
   availableGroups.value.find((group) => group.name === selectedGroup.value)

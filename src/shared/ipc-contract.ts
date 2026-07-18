@@ -335,11 +335,11 @@ export interface FtEngineApi {
     get: (sourceKey: string) => Promise<ReportResult | null>
   }
   projects: {
-    create: (projectName: string, mode: CompetitionMode) => Promise<CompetitionConfig>
+    create: (name: string, mode: CompetitionMode) => Promise<CompetitionConfig>
     update: (
       sourceKey: string,
       input: {
-        projectName: string
+        name: string
         mode: CompetitionMode
         groups: CompetitionGroupConfig[]
       }

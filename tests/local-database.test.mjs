@@ -23,9 +23,9 @@ function createDatabase() {
 }
 
 function createConfiguredCompetition(database) {
-  const competition = database.createCompetition({ projectName: 'Test Event', mode: 'FREE' })
-  database.updateCompetition(competition.source_key, {
-    projectName: 'Test Event',
+  const competition = database.createCompetition({ name: 'Test Event', mode: 'FREE' })
+  database.updateCompetition(competition.id, {
+    name: 'Test Event',
     mode: 'FREE',
     groups: [
       {
@@ -37,8 +37,8 @@ function createConfiguredCompetition(database) {
             index: 1,
             name: 'Judge A',
             mode: 'SINGLE',
-            pri_addr: 'device-1',
-            sec_addr: ''
+            primaryDeviceId: 'device-1',
+            secondaryDeviceId: ''
           }
         ]
       }
@@ -123,7 +123,7 @@ test('appends immutable score events idempotently', () => {
   try {
     assert.deepEqual(
       database.appendMatchScoreEvent({
-        sourceKey: competition.source_key,
+        sourceKey: competition.id,
         groupName: 'Final',
         contestantName: 'Alice',
         attemptNumber: 1,
@@ -134,7 +134,7 @@ test('appends immutable score events idempotently', () => {
     )
     assert.deepEqual(
       database.appendMatchScoreEvent({
-        sourceKey: competition.source_key,
+        sourceKey: competition.id,
         groupName: 'Final',
         contestantName: 'Alice',
         attemptNumber: 1,
@@ -181,7 +181,7 @@ test('rejects score events outside the configured competition graph', () => {
     const timestamp = '2026-07-18T08:00:00.100Z'
     assert.deepEqual(
       database.appendMatchScoreEvent({
-        sourceKey: competition.source_key,
+        sourceKey: competition.id,
         groupName: 'Final',
         contestantName: 'Unknown',
         attemptNumber: 1,
@@ -203,7 +203,7 @@ test('rejects score events outside the configured competition graph', () => {
       }),
       { status: 'context_missing' }
     )
-    assert.equal(database.getCompetitionConfig(competition.source_key)?.groups[0].players.length, 1)
+    assert.equal(database.getCompetitionConfig(competition.id)?.groups[0].players.length, 1)
     assert.deepEqual(database.getScoreEvents(), [])
   } finally {
     database.close()

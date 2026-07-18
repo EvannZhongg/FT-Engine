@@ -39,8 +39,8 @@ const group = {
       index: 1,
       name: 'Judge A',
       mode: 'SINGLE',
-      pri_addr: 'device-primary',
-      sec_addr: ''
+      primaryDeviceId: 'device-primary',
+      secondaryDeviceId: ''
     }
   ]
 }
@@ -49,17 +49,17 @@ test('creates and updates a SQLite competition', () => {
   const { database, competitions } = createFixture()
   try {
     const created = competitions.create('Local Event', 'FREE')
-    assert.match(created.source_key, /^[0-9a-f-]{36}$/)
+    assert.match(created.id, /^[0-9a-f-]{36}$/)
     assert.deepEqual(created.groups, [])
 
-    const updated = competitions.update(created.source_key, {
-      projectName: 'Local Event',
+    const updated = competitions.update(created.id, {
+      name: 'Local Event',
       mode: 'FREE',
       groups: [group]
     })
     assert.deepEqual(updated.groups, [group])
-    assert.deepEqual(competitions.get(created.source_key), updated)
-    assert.deepEqual(competitions.list(), [{ ...updated, dir_name: created.source_key }])
+    assert.deepEqual(competitions.get(created.id), updated)
+    assert.deepEqual(competitions.list(), [updated])
   } finally {
     database.close()
   }
@@ -69,8 +69,8 @@ test('scores a local competition and locks structure while allowing device rebin
   const { database, competitions } = createFixture()
   try {
     const created = competitions.create('Local Event', 'TOURNAMENT')
-    competitions.update(created.source_key, {
-      projectName: 'Local Event',
+    competitions.update(created.id, {
+      name: 'Local Event',
       mode: 'TOURNAMENT',
       groups: [group]
     })
@@ -85,7 +85,7 @@ test('scores a local competition and locks structure while allowing device rebin
       now: () => new Date('2026-07-18T14:00:00.000Z')
     })
     await match.start({
-      sourceKey: created.source_key,
+      sourceKey: created.id,
       groupName: 'Final',
       contestantName: 'Alice',
       attemptNumber: 1,
@@ -111,20 +111,20 @@ test('scores a local competition and locks structure while allowing device rebin
       }
     })
 
-    assert.deepEqual(database.getReport(created.source_key)?.scores.Final.Alice[1], {
+    assert.deepEqual(database.getReport(created.id)?.scores.Final.Alice[1], {
       total: 3,
       plus: 4,
       minus: 1,
       penalty: 0
     })
     assert.equal(
-      database.getReplay(created.source_key, 'Final', 'Alice')?.events[0].event_id,
+      database.getReplay(created.id, 'Final', 'Alice')?.events[0].event_id,
       'local-event-1'
     )
     assert.throws(
       () =>
-        competitions.update(created.source_key, {
-          projectName: 'Local Event',
+        competitions.update(created.id, {
+          name: 'Local Event',
           mode: 'TOURNAMENT',
           groups: [{ ...group, players: ['Renamed'] }]
         }),
@@ -133,14 +133,14 @@ test('scores a local competition and locks structure while allowing device rebin
 
     const reboundGroup = {
       ...group,
-      referees: [{ ...group.referees[0], pri_addr: 'replacement-device' }]
+      referees: [{ ...group.referees[0], primaryDeviceId: 'replacement-device' }]
     }
-    const rebound = competitions.update(created.source_key, {
-      projectName: 'Local Event',
+    const rebound = competitions.update(created.id, {
+      name: 'Local Event',
       mode: 'TOURNAMENT',
       groups: [reboundGroup]
     })
-    assert.equal(rebound.groups[0].referees[0].pri_addr, 'replacement-device')
+    assert.equal(rebound.groups[0].referees[0].primaryDeviceId, 'replacement-device')
     assert.equal(database.getScoreEvents().length, 1)
   } finally {
     database.close()
@@ -153,15 +153,15 @@ test('rejects duplicate players and deletes a competition graph', () => {
     const created = competitions.create('Local Event', 'FREE')
     assert.throws(
       () =>
-        competitions.update(created.source_key, {
-          projectName: 'Local Event',
+        competitions.update(created.id, {
+          name: 'Local Event',
           mode: 'FREE',
           groups: [{ ...group, players: ['Alice', 'Alice'] }]
         }),
       /COMPETITION_CONFIG_INVALID/
     )
-    assert.equal(competitions.delete(created.source_key), true)
-    assert.equal(competitions.get(created.source_key), null)
+    assert.equal(competitions.delete(created.id), true)
+    assert.equal(competitions.get(created.id), null)
   } finally {
     database.close()
   }

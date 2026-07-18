@@ -7,7 +7,7 @@ import type {
 } from '../../../shared/contracts/competition.mts'
 
 export interface CompetitionCreateInput {
-  projectName: string
+  name: string
   mode: CompetitionMode
 }
 
@@ -30,17 +30,14 @@ export class CompetitionService {
     this.repository = repository
   }
 
-  create(projectName: unknown, mode: unknown): CompetitionConfig {
-    return this.repository.create(normalizeCreateInput(projectName, mode))
+  create(name: unknown, mode: unknown): CompetitionConfig {
+    return this.repository.create(normalizeCreateInput(name, mode))
   }
 
   update(sourceKey: unknown, input: unknown): CompetitionConfig {
     const key = normalizeSourceKey(sourceKey)
     if (!isRecord(input)) throw new Error('COMPETITION_CONFIG_INVALID')
-    return this.repository.update(
-      key,
-      normalizeUpdateInput(input.projectName, input.mode, input.groups)
-    )
+    return this.repository.update(key, normalizeUpdateInput(input.name, input.mode, input.groups))
   }
 
   get(sourceKey: unknown): CompetitionConfig | null {
@@ -56,24 +53,24 @@ export class CompetitionService {
   }
 }
 
-export function normalizeCreateInput(projectName: unknown, mode: unknown): CompetitionCreateInput {
+export function normalizeCreateInput(name: unknown, mode: unknown): CompetitionCreateInput {
   if (
-    typeof projectName !== 'string' ||
-    !projectName.trim() ||
-    projectName.trim().length > 128 ||
+    typeof name !== 'string' ||
+    !name.trim() ||
+    name.trim().length > 128 ||
     (mode !== 'FREE' && mode !== 'TOURNAMENT')
   ) {
     throw new Error('COMPETITION_CONFIG_INVALID')
   }
-  return { projectName: projectName.trim(), mode }
+  return { name: name.trim(), mode }
 }
 
 export function normalizeUpdateInput(
-  projectName: unknown,
+  name: unknown,
   mode: unknown,
   groups: unknown
 ): CompetitionUpdateInput {
-  const create = normalizeCreateInput(projectName, mode)
+  const create = normalizeCreateInput(name, mode)
   const normalizedGroups = normalizeCompetitionGroups(groups)
   return { ...create, groups: normalizedGroups }
 }
@@ -101,12 +98,12 @@ export function hasSameCompetitionStructure(
 ): boolean {
   return (
     JSON.stringify({
-      projectName: current.project_name,
+      name: current.name,
       mode: current.mode,
       groups: current.groups.map(structuralGroup)
     }) ===
     JSON.stringify({
-      projectName: input.projectName,
+      name: input.name,
       mode: input.mode,
       groups: input.groups.map(structuralGroup)
     })
@@ -143,7 +140,7 @@ function normalizeGroup(value: unknown): CompetitionGroupConfig {
       throw new Error('COMPETITION_CONFIG_INVALID')
     }
     refereeIndexes.add(normalized.index)
-    for (const deviceId of [normalized.pri_addr, normalized.sec_addr]) {
+    for (const deviceId of [normalized.primaryDeviceId, normalized.secondaryDeviceId]) {
       if (!deviceId) continue
       if (deviceIds.has(deviceId)) throw new Error('COMPETITION_CONFIG_INVALID')
       deviceIds.add(deviceId)
@@ -163,14 +160,14 @@ function normalizeReferee(value: unknown): CompetitionRefereeConfig {
   ) {
     throw new Error('COMPETITION_CONFIG_INVALID')
   }
-  const priAddr = optionalId(value.pri_addr)
-  const secAddr = value.mode === 'DUAL' ? optionalId(value.sec_addr) : ''
+  const primaryDeviceId = optionalId(value.primaryDeviceId)
+  const secondaryDeviceId = value.mode === 'DUAL' ? optionalId(value.secondaryDeviceId) : ''
   return {
     index: Number(value.index),
     name: normalizedText(value.name || `Referee ${value.index}`, 128),
     mode: value.mode,
-    pri_addr: priAddr,
-    sec_addr: secAddr
+    primaryDeviceId,
+    secondaryDeviceId
   }
 }
 

@@ -48,10 +48,10 @@
         </div>
 
         <div class="project-list custom-scroll">
-          <div v-for="p in projects" :key="p.dir_name" class="project-item">
+          <div v-for="p in projects" :key="p.id" class="project-item">
             <div class="p-info">
-              <div class="p-name">{{ p.project_name }}</div>
-              <div class="p-date">{{ p.created_at }}</div>
+              <div class="p-name">{{ p.name }}</div>
+              <div class="p-date">{{ p.createdAt }}</div>
             </div>
             <div class="p-actions">
               <button class="btn-mini btn-view" @click="handleViewDetails(p)">{{ $t('home_btn_view') }}</button>
@@ -70,7 +70,7 @@
       <div class="glass-modal delete-dialog">
         <h3 class="del-title">{{ $t('home_btn_delete') }}</h3>
         <p class="del-msg">
-          {{ $t('home_del_confirm', { name: projectToDelete?.project_name }) }}
+          {{ $t('home_del_confirm', { name: projectToDelete?.name }) }}
         </p>
         <div class="modal-actions">
           <button class="btn-cancel" @click="cancelDelete">{{ $t('btn_cancel') }}</button>
@@ -105,15 +105,15 @@ onMounted(async () => {
 const handleNewMatch = () => { store.clearLocalConfig(); emit('navigate', 'setup') }
 const openHistory = async () => { projects.value = await store.fetchHistoryProjects(); showHistoryModal.value = true }
 const closeHistory = () => { showHistoryModal.value = false }
-const handleViewDetails = (project) => { emit('view-report', project.dir_name) }
+const handleViewDetails = (project) => { emit('view-report', project.id) }
 const handleContinue = async (project) => {
-  const success = await store.loadProject(project.dir_name)
+  const success = await store.loadProject(project.id)
   if (success) { showHistoryModal.value = false; emit('navigate', 'setup') }
 }
 const requestDelete = (project) => { projectToDelete.value = project; showDeleteModal.value = true }
 const confirmDelete = async () => {
   if (!projectToDelete.value) return
-  const success = await store.deleteProject(projectToDelete.value.dir_name)
+  const success = await store.deleteProject(projectToDelete.value.id)
   if (success) { projects.value = await store.fetchHistoryProjects(); showDeleteModal.value = false; projectToDelete.value = null }
   else { alert(t('home_del_fail')) }
 }

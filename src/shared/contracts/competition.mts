@@ -5,8 +5,8 @@ export interface CompetitionRefereeConfig {
   index: number
   name: string
   mode: CompetitionRefereeMode
-  pri_addr: string
-  sec_addr: string
+  primaryDeviceId: string
+  secondaryDeviceId: string
 }
 
 export interface CompetitionGroupConfig {
@@ -17,10 +17,10 @@ export interface CompetitionGroupConfig {
 }
 
 export interface CompetitionConfig {
-  project_name: string
+  id: string
+  name: string
   mode: CompetitionMode
-  created_at: string
-  source_key: string
+  createdAt: string
   groups: CompetitionGroupConfig[]
   media: Record<
     string,
@@ -28,6 +28,4 @@ export interface CompetitionConfig {
   >
 }
 
-export interface CompetitionListItem extends CompetitionConfig {
-  dir_name: string
-}
+export type CompetitionListItem = CompetitionConfig

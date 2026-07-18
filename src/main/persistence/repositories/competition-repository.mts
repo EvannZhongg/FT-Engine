@@ -34,7 +34,7 @@ export class CompetitionRepository {
         VALUES (?, ?, ?, 'draft', ?, ?)
       `
         )
-        .run(competitionId, input.projectName, input.mode, now, now)
+        .run(competitionId, input.name, input.mode, now, now)
       database
         .prepare(
           `
@@ -65,7 +65,7 @@ export class CompetitionRepository {
     try {
       database
         .prepare('UPDATE competitions SET name = ?, mode = ?, updated_at = ? WHERE id = ?')
-        .run(input.projectName, input.mode, new Date().toISOString(), competition.id)
+        .run(input.name, input.mode, new Date().toISOString(), competition.id)
       const stage = findFirstStage(database, competition.id)
       if (!stage) throw new Error('COMPETITION_NOT_FOUND')
       if (hasEvents) {
@@ -110,10 +110,10 @@ export class CompetitionRepository {
       }
     }
     return {
-      project_name: competition.name,
+      id: competition.id,
+      name: competition.name,
       mode: competition.mode,
-      created_at: competition.createdAt,
-      source_key: competition.id,
+      createdAt: competition.createdAt,
       groups,
       media
     }
@@ -126,7 +126,7 @@ export class CompetitionRepository {
       .all() as Array<{ id: string }>
     return rows.flatMap((row) => {
       const config = this.getConfig(row.id)
-      return config ? [{ ...config, dir_name: config.source_key }] : []
+      return config ? [config] : []
     })
   }
 

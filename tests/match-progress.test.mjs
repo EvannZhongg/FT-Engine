@@ -18,8 +18,8 @@ const group = {
       index: 1,
       name: 'Judge A',
       mode: 'SINGLE',
-      pri_addr: 'device-primary',
-      sec_addr: ''
+      primaryDeviceId: 'device-primary',
+      secondaryDeviceId: ''
     }
   ]
 }
@@ -29,14 +29,14 @@ function createFixture() {
   roots.push(root)
   const database = new LocalDatabase(path.join(root, 'ft-engine.db'), path.join(root, 'backups'))
   database.open()
-  const competition = database.createCompetition({ projectName: 'Progress Event', mode: 'FREE' })
-  database.updateCompetition(competition.source_key, {
-    projectName: 'Progress Event',
+  const competition = database.createCompetition({ name: 'Progress Event', mode: 'FREE' })
+  database.updateCompetition(competition.id, {
+    name: 'Progress Event',
     mode: 'FREE',
     groups: [group]
   })
   const context = (contestantName) => ({
-    sourceKey: competition.source_key,
+    sourceKey: competition.id,
     groupName: 'Final',
     contestantName,
     attemptNumber: 1
@@ -100,7 +100,7 @@ test('activates, switches and completes sessions with an immutable audit trail',
       ]
     )
 
-    const stage = database.listStages(competition.source_key)[0]
+    const stage = database.listStages(competition.id)[0]
     assert.equal(database.completeStage(stage.id).status, 'completed')
   } finally {
     database.close()

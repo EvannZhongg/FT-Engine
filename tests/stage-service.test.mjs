@@ -20,8 +20,8 @@ const group = {
       index: 1,
       name: 'Judge A',
       mode: 'SINGLE',
-      pri_addr: 'device-primary',
-      sec_addr: ''
+      primaryDeviceId: 'device-primary',
+      secondaryDeviceId: ''
     }
   ]
 }
@@ -31,7 +31,7 @@ function createFixture() {
   roots.push(root)
   const database = new LocalDatabase(path.join(root, 'ft-engine.db'), path.join(root, 'backups'))
   database.open()
-  const competition = database.createCompetition({ projectName: 'Stage Event', mode: 'TOURNAMENT' })
+  const competition = database.createCompetition({ name: 'Stage Event', mode: 'TOURNAMENT' })
   const stages = new StageService({
     list: (competitionId) => database.listStages(competitionId),
     create: (competitionId, input) => database.createStage(competitionId, input),
@@ -69,9 +69,9 @@ test.afterEach(() => {
 test('configures multiple stages, attempts and stable ordering', () => {
   const { database, competition, stages } = createFixture()
   try {
-    const main = stages.list(competition.source_key)[0]
+    const main = stages.list(competition.id)[0]
     const qualifier = stages.update(main.id, { name: 'Qualifier', attempts: 2, groups: [group] })
-    const final = stages.create(competition.source_key, {
+    const final = stages.create(competition.id, {
       name: 'Final',
       attempts: 3,
       groups: [{ ...group, name: 'Final Group', players: ['Carol'] }]
@@ -99,7 +99,7 @@ test('configures multiple stages, attempts and stable ordering', () => {
       3
     )
 
-    const reordered = stages.reorder(competition.source_key, [final.id, qualifier.id])
+    const reordered = stages.reorder(competition.id, [final.id, qualifier.id])
     assert.deepEqual(
       reordered.map((stage) => [stage.name, stage.position]),
       [
@@ -107,15 +107,15 @@ test('configures multiple stages, attempts and stable ordering', () => {
         ['Qualifier', 1]
       ]
     )
-    assert.throws(() => stages.reorder(competition.source_key, [final.id]), /STAGE_ORDER_INVALID/)
+    assert.throws(() => stages.reorder(competition.id, [final.id]), /STAGE_ORDER_INVALID/)
     assert.throws(
-      () => stages.create(competition.source_key, { name: 'Final', attempts: 1, groups: [] }),
+      () => stages.create(competition.id, { name: 'Final', attempts: 1, groups: [] }),
       /STAGE_NAME_DUPLICATE/
     )
 
     assert.deepEqual(
       database.appendMatchScoreEvent({
-        sourceKey: competition.source_key,
+        sourceKey: competition.id,
         groupName: 'Final Group',
         contestantName: 'Carol',
         attemptNumber: 3,
@@ -146,7 +146,7 @@ test('configures multiple stages, attempts and stable ordering', () => {
       ).attempt_number,
       3
     )
-    assert.equal(stages.list(competition.source_key)[0].status, 'active')
+    assert.equal(stages.list(competition.id)[0].status, 'active')
     assert.equal(
       queryDatabase(
         database,
@@ -162,16 +162,12 @@ test('configures multiple stages, attempts and stable ordering', () => {
 test('enforces stage and competition lifecycle transitions', () => {
   const { database, competition, stages } = createFixture()
   try {
-    const main = stages.list(competition.source_key)[0]
+    const main = stages.list(competition.id)[0]
     stages.update(main.id, { name: 'Main', attempts: 1, groups: [group] })
     const active = stages.activate(main.id)
     assert.equal(active.status, 'active')
     assert.equal(
-      queryDatabase(
-        database,
-        'SELECT status FROM competitions WHERE id = ?',
-        competition.source_key
-      ).status,
+      queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id).status,
       'active'
     )
     assert.throws(
@@ -187,11 +183,7 @@ test('enforces stage and competition lifecycle transitions', () => {
     )
     assert.equal(stages.complete(main.id).status, 'completed')
     assert.equal(
-      queryDatabase(
-        database,
-        'SELECT status FROM competitions WHERE id = ?',
-        competition.source_key
-      ).status,
+      queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id).status,
       'completed'
     )
   } finally {
@@ -202,7 +194,7 @@ test('enforces stage and competition lifecycle transitions', () => {
 test('rejects empty activation, invalid attempts and removal of the last stage', () => {
   const { database, competition, stages } = createFixture()
   try {
-    const main = stages.list(competition.source_key)[0]
+    const main = stages.list(competition.id)[0]
     assert.throws(() => stages.activate(main.id), /STAGE_EMPTY/)
     assert.throws(
       () => stages.update(main.id, { name: 'Main', attempts: 0, groups: [] }),
@@ -210,10 +202,10 @@ test('rejects empty activation, invalid attempts and removal of the last stage',
     )
     assert.throws(() => stages.delete(main.id), /STAGE_LAST_REQUIRED/)
 
-    const spare = stages.create(competition.source_key, { name: 'Spare', attempts: 1, groups: [] })
+    const spare = stages.create(competition.id, { name: 'Spare', attempts: 1, groups: [] })
     assert.equal(stages.delete(spare.id), true)
     assert.deepEqual(
-      stages.list(competition.source_key).map((stage) => stage.id),
+      stages.list(competition.id).map((stage) => stage.id),
       [main.id]
     )
   } finally {

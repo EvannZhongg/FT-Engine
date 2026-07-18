@@ -156,8 +156,8 @@ export const useRefereeStore = defineStore('referee', {
     async updateGroups(groups) {
       try {
         if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
-        this.projectConfig = await window.ftEngine.projects.update(this.projectConfig.source_key, {
-          projectName: this.projectConfig.project_name,
+        this.projectConfig = await window.ftEngine.projects.update(this.projectConfig.id, {
+          name: this.projectConfig.name,
           mode: this.projectConfig.mode,
           groups
         })
@@ -223,7 +223,7 @@ export const useRefereeStore = defineStore('referee', {
         })
         if (window.ftEngine?.match) {
           const result = await window.ftEngine.match.start({
-            sourceKey: this.projectConfig.source_key,
+            sourceKey: this.projectConfig.id,
             groupName: this.currentContext.groupName,
             contestantName: this.currentContext.contestantName,
             attemptNumber: 1,
@@ -231,8 +231,8 @@ export const useRefereeStore = defineStore('referee', {
               index: referee.index,
               name: referee.name || `Referee ${referee.index}`,
               mode: referee.mode,
-              primaryDeviceId: referee.pri_addr || null,
-              secondaryDeviceId: referee.mode === 'DUAL' ? referee.sec_addr || null : null
+              primaryDeviceId: referee.primaryDeviceId || null,
+              secondaryDeviceId: referee.mode === 'DUAL' ? referee.secondaryDeviceId || null : null
             }))
           })
           this.matchStatus = result.status
@@ -425,13 +425,10 @@ export const useRefereeStore = defineStore('referee', {
     async fetchScoredPlayers(groupName) {
       if (!groupName) return
       try {
-        if (!window.ftEngine?.match || !this.projectConfig.source_key) {
+        if (!window.ftEngine?.match || !this.projectConfig.id) {
           throw new Error('LOCAL_MATCH_UNAVAILABLE')
         }
-        const scored = await window.ftEngine.match.listScored(
-          this.projectConfig.source_key,
-          groupName
-        )
+        const scored = await window.ftEngine.match.listScored(this.projectConfig.id, groupName)
         this.scoredPlayers = new Set(scored)
       } catch (e) {
         console.error('Fetch status failed', e)
