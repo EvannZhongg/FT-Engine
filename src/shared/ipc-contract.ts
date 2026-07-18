@@ -1,3 +1,5 @@
+import type { YouTubeMediaBinding } from './media/youtube.mts'
+
 export const IPC_CHANNELS = {
   app: {
     getServerConfig: 'app:get-server-config',
@@ -301,8 +303,8 @@ export interface FtEngineApi {
     setMediaBinding: (
       groupName: string,
       contestantName: string,
-      binding: { provider: string; mediaId: string; canonicalUrl: string }
-    ) => Promise<boolean>
+      url: string
+    ) => Promise<YouTubeMediaBinding>
     listScored: (sourceKey: string, groupName: string) => Promise<string[]>
     reset: () => Promise<unknown>
     stop: () => Promise<MatchStopResult>

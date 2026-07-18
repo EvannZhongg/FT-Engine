@@ -10,7 +10,7 @@ Route B is being introduced incrementally. The current application is a working 
 
 - Window, overlay, device, live-match, and primary historical reads use constrained IPC.
 - Electron Main's `MatchSessionService` connects the Platform Worker, TypeScript scoring domain, and atomic live SQLite event writes while publishing continuous save/worker/media status to the scoring UI.
-- The legacy FastAPI backend still owns project creation/loading, groups, media URL normalization, and exports. Settings and device remarks use SQLite IPC. Legacy hardware and WebSocket routes remain in the process but are no longer called by Electron live scoring.
+- The legacy FastAPI backend still owns project creation/loading, groups, and exports. Settings, device remarks, media bindings, and playback anchors use SQLite/Main IPC. Legacy hardware, media, and WebSocket routes remain in the process but are no longer called by Electron live scoring.
 - SQLite schema v5 supports migration backups, legacy import, live-managed projects, historical reads, and live events, but new matches still require a legacy project source.
 
 See [current architecture](docs/ARCHITECTURE_CURRENT_zh.md) and the [remaining Route B plan](docs/REFACTOR_PLAN_ROUTE_B_zh.md). Do not assume the localhost backend has already been removed.

@@ -299,14 +299,24 @@ test('rejects duplicate device bindings before connecting', async () => {
 test('captures a fresh playback anchor and persists media bindings', async () => {
   const fixture = createFixture()
   await fixture.service.start(startInput)
-  assert.equal(
-    fixture.service.setMediaBinding('Final', 'Alice', {
+  assert.deepEqual(
+    fixture.service.setMediaBinding('Final', 'Alice', 'https://youtu.be/dQw4w9WgXcQ?si=demo'),
+    {
+      provider: 'youtube',
+      video_id: 'dQw4w9WgXcQ',
+      canonical_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    }
+  )
+  assert.deepEqual(fixture.mediaBindings[0], [
+    startInput.sourceKey,
+    'Final',
+    'Alice',
+    {
       provider: 'youtube',
       mediaId: 'dQw4w9WgXcQ',
       canonicalUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-    }),
-    true
-  )
+    }
+  ])
   fixture.service.updatePlayback({
     group: 'Final',
     contestant: 'Alice',

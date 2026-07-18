@@ -419,23 +419,16 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     async saveMediaBinding(groupName, contestantName, url) {
-      const res = await axios.post(`${this.apiBase}/api/project/media`, {
-        group: groupName,
-        contestant: contestantName,
+      if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
+      const binding = await window.ftEngine.match.setMediaBinding(
+        groupName,
+        contestantName,
         url
-      })
-      if (res.data.status !== 'ok') throw new Error(res.data.msg || 'Unable to save video')
+      )
       if (!this.projectConfig.media) this.projectConfig.media = {}
       if (!this.projectConfig.media[groupName]) this.projectConfig.media[groupName] = {}
-      this.projectConfig.media[groupName][contestantName] = res.data.binding
-      if (window.ftEngine?.match) {
-        await window.ftEngine.match.setMediaBinding(groupName, contestantName, {
-          provider: res.data.binding.provider,
-          mediaId: res.data.binding.video_id,
-          canonicalUrl: res.data.binding.canonical_url
-        })
-      }
-      return res.data.binding
+      this.projectConfig.media[groupName][contestantName] = binding
+      return binding
     },
 
     async syncMediaPlayback(playback) {

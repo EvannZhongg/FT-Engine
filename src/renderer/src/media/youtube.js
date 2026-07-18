@@ -1,39 +1,6 @@
-const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/
+export { normalizeYouTubeUrl } from '../../../shared/media/youtube.mts'
+
 let apiPromise = null
-
-export function normalizeYouTubeUrl(value) {
-  const raw = String(value || '').trim()
-  if (!raw) throw new Error('YouTube URL is required')
-
-  let url
-  try {
-    url = new URL(raw.includes('://') ? raw : `https://${raw}`)
-  } catch {
-    throw new Error('Invalid YouTube URL')
-  }
-
-  const host = url.hostname.toLowerCase()
-  let videoId = ''
-  if (host === 'youtu.be') {
-    videoId = url.pathname.split('/').filter(Boolean)[0] || ''
-  } else if (
-    ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com',
-      'youtube-nocookie.com', 'www.youtube-nocookie.com'].includes(host)
-  ) {
-    const parts = url.pathname.split('/').filter(Boolean)
-    if (url.pathname.replace(/\/$/, '') === '/watch') videoId = url.searchParams.get('v') || ''
-    else if (parts.length >= 2 && ['shorts', 'embed', 'live'].includes(parts[0])) videoId = parts[1]
-  } else {
-    throw new Error('Only youtube.com and youtu.be links are supported')
-  }
-
-  if (!VIDEO_ID_PATTERN.test(videoId)) throw new Error('Invalid YouTube video link')
-  return {
-    provider: 'youtube',
-    video_id: videoId,
-    canonical_url: `https://www.youtube.com/watch?v=${videoId}`
-  }
-}
 
 export function loadYouTubeApi() {
   if (window.YT?.Player) return Promise.resolve(window.YT)

@@ -111,8 +111,8 @@ const ftEngine = {
     setContext: (groupName, contestantName) =>
       ipcRenderer.invoke(IPC_CHANNELS.match.setContext, groupName, contestantName),
     syncPlayback: (playback) => ipcRenderer.invoke(IPC_CHANNELS.match.syncPlayback, playback),
-    setMediaBinding: (groupName, contestantName, binding) =>
-      ipcRenderer.invoke(IPC_CHANNELS.match.setMediaBinding, groupName, contestantName, binding),
+    setMediaBinding: (groupName, contestantName, url) =>
+      ipcRenderer.invoke(IPC_CHANNELS.match.setMediaBinding, groupName, contestantName, url),
     listScored: (sourceKey, groupName) =>
       ipcRenderer.invoke(IPC_CHANNELS.match.listScored, sourceKey, groupName),
     reset: () => ipcRenderer.invoke(IPC_CHANNELS.match.reset),

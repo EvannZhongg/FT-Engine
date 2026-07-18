@@ -14,9 +14,8 @@ Vue Renderer
   │
   └─ Axios ─ Legacy FastAPI backend
              ├─ project/config JSON and CSV compatibility
-             ├─ media URL normalization
-             ├─ export
-             └─ dormant legacy hardware/scoring routes
+             ├─ report and export compatibility
+             └─ dormant legacy hardware/scoring/media routes
 ~~~
 
 Electron 仍同时启动三个运行单元：`server.py`、Platform Worker 和 Electron Main 内 SQLite。当前不能把 FastAPI 或 legacy 文件存储描述为已经移除。
@@ -35,8 +34,8 @@ Electron 仍同时启动三个运行单元：`server.py`、Platform Worker 和 E
 | legacy 项目导入 | JSON/CSV -> SQLite | 已实现幂等导入和 live-managed 保护 |
 | 项目创建、组别编辑、继续项目 | Renderer -> FastAPI | 未切换 |
 | 设置和设备备注 | Renderer -> Main -> SQLite `app_settings` | 已切换；输入使用固定键和有界值校验 |
-| 媒体绑定 | FastAPI 规范化并写 JSON，再同步 SQLite | 双写过渡期 |
-| 播放锚点 | 活动比赛走 Main；无 IPC 时走 FastAPI | 过渡期 |
+| 媒体绑定 | Renderer -> Main shared normalizer -> SQLite | 已切换；不再写 legacy JSON |
+| 播放锚点 | Renderer -> Main MatchSession | 已切换；legacy playback 路由无调用点 |
 | 导出 | FastAPI + legacy ExportManager | 未切换 |
 
 ## 3. 实时比赛实际数据流
@@ -61,9 +60,9 @@ Electron 实时路径中的活动设备只由 Worker 持有。生产代码仍保
 
 - `server.py` 约 1363 行，同时包含 Scanner、BLE/USB 节点、计分聚合、WebSocket、项目、媒体和导出路由。
 - `src/main/index.js` 约 983 行，同时承担进程启动、数据库导入、Worker 监管、MatchSession 组合、全部 IPC 和窗口生命周期。
-- `src/main/match/match-session.mts` 约 737 行，已经集中状态机、控制并发、事件持久化协调、媒体锚点和通知逻辑，需要在 P1 前继续按职责拆分。
-- `src/main/persistence/local-database.mts` 约 1420 行，混合 migration、legacy 导入写入、实时仓储和多种查询投影；新增设置规则已放入独立 application 模块，后续仓储仍需分域。
-- `src/renderer/src/stores/refereeStore.js` 约 576 行，混合设置、项目、设备、比赛、Overlay、复盘和导出，并同时维护 IPC 与 REST。
+- `src/main/match/match-session.mts` 约 742 行，已经集中状态机、控制并发、事件持久化协调、媒体锚点和通知逻辑，需要在 P1 前继续按职责拆分。
+- `src/main/persistence/local-database.mts` 约 1422 行，混合 migration、legacy 导入写入、实时仓储和多种查询投影；新增设置规则已放入独立 application 模块，后续仓储仍需分域。
+- `src/renderer/src/stores/refereeStore.js` 约 573 行，混合设置、项目、设备、比赛、Overlay、复盘和导出，并同时维护 IPC 与 REST。
 - `App.vue` 使用手写 `currentView`；主窗口与 Overlay 通过 query 参数共享入口。
 
 下一阶段不能只拆 `server.py`；Main 组合根和 Renderer Store 也已达到需要分域的规模。
@@ -80,9 +79,8 @@ Electron 实时路径中的活动设备只由 Worker 持有。生产代码仍保
 ### 中优先级
 
 1. 实时路径仍以导入 legacy 目录作为创建 SQLite 上下文的前置条件，新数据库尚不能独立创建比赛。
-2. 媒体 URL 在 Python 规范化后再写 SQLite，Main 的媒体接口不能独立完成绑定。
-3. 导入错误和迁移失败仍主要写日志，缺少用户可操作的迁移结果页面。
-4. Main 的 `index.js`、`MatchSessionService`、`LocalDatabase` 和 Renderer Store 已成为新的集中式文件，继续追加职责会重复 `server.py` 的问题。
+2. 导入错误和迁移失败仍主要写日志，缺少用户可操作的迁移结果页面。
+3. Main 的 `index.js`、`MatchSessionService`、`LocalDatabase` 和 Renderer Store 已成为新的集中式文件，继续追加职责会重复 `server.py` 的问题。
 
 ## 6. UI 当前差距
 
@@ -97,7 +95,7 @@ Electron 实时路径中的活动设备只由 Worker 持有。生产代码仍保
 
 2026-07-18 本地检查结果：
 
-- `npm test`：49/49 通过。
+- `npm test`：51/51 通过。
 - `npm run typecheck`：通过。
 - `python -m unittest discover -s tests`：36/36 通过。
 - Docker 中存在 `pgvector-db`，镜像 `pgvector/pgvector:pg16`，宿主端口 `5433` 映射容器 `5432`。

@@ -10,6 +10,7 @@ import type {
   LegacyScoreEventWrite,
   LegacyScoreEventWriteResult
 } from '../persistence/local-database.mts'
+import { normalizeYouTubeUrl, type YouTubeMediaBinding } from '../../shared/media/youtube.mts'
 
 export interface MatchRefereeBinding {
   index: number
@@ -345,26 +346,30 @@ export class MatchSessionService {
     this.publishStatus()
   }
 
-  setMediaBinding(
-    groupName: string,
-    contestantName: string,
-    binding: { provider: string; mediaId: string; canonicalUrl: string }
-  ): boolean {
+  setMediaBinding(groupName: string, contestantName: string, url: string): YouTubeMediaBinding {
     this.requireActive()
-    if (
-      !groupName ||
-      !contestantName ||
-      binding?.provider !== 'youtube' ||
-      !/^[A-Za-z0-9_-]{11}$/.test(binding.mediaId) ||
-      typeof binding.canonicalUrl !== 'string' ||
-      binding.canonicalUrl.length > 2048
-    ) {
+    if (!groupName || !contestantName) {
       throw new MatchSessionError('MATCH_MEDIA_INVALID', 'Media binding is invalid')
     }
-    return (
-      this.dependencies.upsertMediaBinding?.(this.sourceKey, groupName, contestantName, binding) ??
-      false
-    )
+    let binding: YouTubeMediaBinding
+    try {
+      binding = normalizeYouTubeUrl(url)
+    } catch (error) {
+      throw new MatchSessionError(
+        stableErrorCode(error, 'MATCH_MEDIA_INVALID'),
+        'Media binding is invalid'
+      )
+    }
+    const saved =
+      this.dependencies.upsertMediaBinding?.(this.sourceKey, groupName, contestantName, {
+        provider: binding.provider,
+        mediaId: binding.video_id,
+        canonicalUrl: binding.canonical_url
+      }) ?? false
+    if (!saved) {
+      throw new MatchSessionError('MATCH_MEDIA_CONTEXT_NOT_FOUND', 'Media context was not found')
+    }
+    return binding
   }
 
   handleWorkerEvent(message: unknown): void {

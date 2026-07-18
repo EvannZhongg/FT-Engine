@@ -8,7 +8,7 @@
 
 实时比赛已经进入 Electron Main 主路径：Renderer 通过 typed IPC 启动 `MatchSessionService`，Platform Worker 连接设备并发送事件，TypeScript 计分域聚合分数，事件直接写入 SQLite。
 
-但这还不是完整切换：项目创建、继续项目、组别配置、媒体 URL 规范化和导出仍依赖 FastAPI 与 JSON/CSV。设置和设备备注已迁入 SQLite typed IPC。Renderer 已不再创建 localhost WebSocket，实时比赛也不再调用 legacy setup/reset/teardown/context/playback 接口。Electron 启动时仍同时启动 FastAPI、Platform Worker 和 SQLite。
+但这还不是完整切换：项目创建、继续项目、组别配置和导出仍依赖 FastAPI 与 JSON/CSV。设置、设备备注、媒体 URL 规范化、媒体绑定和播放锚点已迁入 Main/SQLite typed IPC。Renderer 已不再创建 localhost WebSocket，实时比赛也不再调用 legacy setup/reset/teardown/context/playback/media 接口。Electron 启动时仍同时启动 FastAPI、Platform Worker 和 SQLite。
 
 ## 2. P0：稳定实时比赛切换
 
@@ -25,7 +25,7 @@ P0 剩余发布门槛：
 ## 3. P1：项目与本地服务迁入 Main
 
 1. 在 SQLite 中直接创建和更新 Competition、Stage、Group、Contestant、Referee、MatchSession，不再要求先创建 legacy 目录再导入。
-2. 设置和设备备注已迁入 Main/SQLite；继续迁移媒体绑定与播放锚点，YouTube URL 规范化应只有一个共享实现和一组契约测试。
+2. 设置、设备备注、媒体绑定与播放锚点已迁入 Main/SQLite；YouTube URL 规范化已收口为共享实现并由契约测试覆盖。
 3. 将历史项目“继续”改为读取 SQLite 领域对象，不再通过 `/api/project/load` 修改 Python 全局活动项目。
 4. 将导出拆成 Main application service，通过系统保存对话框写入 `exports/`；CSV/SRT/ZIP 是派生产物，不是数据库主存储。
 5. 增加迁移结果页面：显示失败项目、原因、源目录、重试和只读打开操作。

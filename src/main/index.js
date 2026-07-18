@@ -709,9 +709,9 @@ app.whenReady().then(async () => {
 
   ipcMain.handle(
     IPC_CHANNELS.match.setMediaBinding,
-    (event, groupName, contestantName, binding) => {
+    (event, groupName, contestantName, url) => {
       assertMainSender(event)
-      return matchSession.setMediaBinding(groupName, contestantName, binding)
+      return matchSession.setMediaBinding(groupName, contestantName, url)
     }
   )
 

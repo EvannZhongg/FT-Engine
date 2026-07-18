@@ -301,7 +301,8 @@ const saveVideoBinding = async () => {
     mediaSaved.value = true
     return true
   } catch (error) {
-    mediaError.value = error.response?.data?.msg || error.message || t('media_invalid')
+    console.debug('Media binding failed', error)
+    mediaError.value = t('media_invalid')
     return false
   } finally {
     savingMedia.value = false
