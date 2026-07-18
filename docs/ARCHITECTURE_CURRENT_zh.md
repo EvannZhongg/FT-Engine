@@ -57,23 +57,22 @@ Renderer projects.create/update
 
 ### 高优先级
 
-1. `index.js` 仍聚合数据库/服务组装、本地数据清理、导出对话框和启动日志，需要继续收缩为 bootstrap。
-2. Worker 自动重启耗尽后虽发布错误状态，但没有用户触发的重试命令。
-3. 仍需真实 BLE/USB、睡眠恢复、OBS、YouTube 网络和 macOS 签名/权限验收。
+1. Worker 自动重启耗尽后虽发布错误状态，但没有用户触发的重试命令。
+2. 仍需真实 BLE/USB、睡眠恢复、OBS、YouTube 网络和 macOS 签名/权限验收。
 
-### 结构问题
+### 结构状态
 
-1. 所有现有 IPC 已拆到 `src/main/ipc/`；窗口、Worker、更新通知和 Electron 生命周期也已进入独立模块。
+1. `index.js` 已收缩为 4 行入口；`bootstrap.mts` 只装配依赖、启动本地资源并注册生命周期/IPC。本地数据库与清理、启动日志、导出对话框和应用命令时序均有独立协作者。
 2. 设备控制、媒体生命周期和状态通知已分别拆到 `MatchDeviceSession`、`MatchMediaSession` 和 `MatchSessionNotifier`；`MatchSessionService` 保留状态机与计分事件协调。
 
 ## 5. 当前代码集中点
 
-- `src/main/index.js` 约 402 行，仍混合数据库/服务组装、本地数据清理、导出对话框和启动日志。
+- `src/main/index.js` 4 行，只调用 `bootstrapDesktopApp`；`src/main/app/bootstrap.mts` 约 283 行，只保留依赖装配、资源启动和注册。
 - `src/main/match/match-session.mts` 约 696 行，保留状态机、上下文转换和计分事件持久化时序；设备、媒体与通知均已拆出。
 - `src/main/persistence/local-database.mts` 约 183 行，只保留连接生命周期和 repository/query 委托。
 - `src/renderer/src/stores/refereeStore.js` 约 654 行，混合设置、项目、Stage、设备、比赛、Overlay、复盘和导出。
 
-下一阶段需要继续拆分 `index.js` 和 Renderer Store，而不是向这些集中点追加职责。
+下一阶段需要补齐 Worker 手动重试，并拆分 Renderer Store，而不是向现有集中点追加职责。
 
 ## 6. UI 当前差距
 
@@ -88,7 +87,7 @@ Renderer projects.create/update
 
 2026-07-19 当前工作树检查：
 
-- `npm test`：96/96 通过。
+- `npm test`：108/108 通过。
 - `npm run typecheck`：通过，覆盖全部 Main `.mts` 模块。
 - `npm run lint`：0 error；历史换行和格式 warning 尚未批量清理。
 - `python -m unittest discover -s tests`：17/17 通过，仅包含 Platform Worker。

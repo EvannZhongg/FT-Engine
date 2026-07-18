@@ -16,15 +16,17 @@ Platform Worker 的握手、事件转发、停止和有界自动重启已进入 
 
 App/Shortcut IPC、更新通知以及 activate/will-quit/window-all-closed 生命周期已拆出，`index.js` 不再直接注册 IPC 或 Electron 生命周期事件。
 
+`index.js` 已收缩为只调用 `bootstrapDesktopApp` 的 4 行入口。`bootstrap.mts` 只负责依赖装配、资源启动和注册；`LocalDataManager`、`StartupLog`、`ExportArtifactSaver` 与 `DesktopAppCommands` 分别承接数据库/清理、启动日志、系统保存对话框和应用命令时序。
+
 StageService/Repository 已支持 graph 配置、排序、1～20 次尝试以及 draft/active/completed 转换；Renderer 已接入多 Stage/attempt 配置与运行选择，计分输入显式携带 stageId 和 attemptNumber。MatchProgressRepository 在事务内完成 start、当前完成+下一激活、finish 和 invalidate，并向不可变转换表追加审计。Schema 已切换为 clean v3，不迁移旧数据。
 
 现场计分页已提供保存结束与二次确认作废入口。设备连接与 Worker 控制协议、媒体生命周期、Renderer 状态通知已分别从 `MatchSessionService` 拆到 `MatchDeviceSession`、`MatchMediaSession` 和 `MatchSessionNotifier`。
 
 Competition 和设备绑定共享 DTO 已改用稳定 camelCase 字段与领域 ID；`dir_name/project_name/source_key/pri_addr/sec_addr` 已从生产源码删除，不提供兼容别名。
 
-## 2. P0：补齐赛事领域并拆分 Main
+## 2. P0：补齐运行恢复
 
-1. 所有 IPC、窗口/Overlay、Worker、更新和应用生命周期已拆出；继续将 `src/main/index.js` 中的数据库/服务装配、本地文件操作和导出对话框收敛到 bootstrap 与明确协作者。
+Main 组合根、赛事领域和 MatchSession 协作者拆分已完成。继续为 Platform Worker 自动重启耗尽后的状态增加用户可触发的手动重试命令，并保持活动比赛的设备重连语义。
 
 目标目录和依赖方向见 [目标架构](./ARCHITECTURE_TARGET_zh.md)。
 

@@ -6,10 +6,26 @@ function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 }
 
-test('keeps domain IPC registration out of the Main composition root', () => {
+test('keeps the Electron entrypoint limited to bootstrap', () => {
   const main = source('src/main/index.js')
+  assert.equal(main.includes('bootstrapDesktopApp({ icon })'), true)
+  for (const implementation of [
+    "from 'electron'",
+    'new LocalDatabase',
+    'new DesktopWindowManager',
+    'registerMatchIpc(',
+    'showSaveDialog',
+    'rmSync',
+    'createWriteStream'
+  ]) {
+    assert.equal(main.includes(implementation), false, implementation)
+  }
+})
+
+test('registers domain IPC from the Main bootstrap', () => {
+  const bootstrap = source('src/main/app/bootstrap.mts')
   for (const domain of ['settings', 'match', 'replay', 'reports', 'projects', 'exports']) {
-    assert.equal(main.includes(`ipcMain.handle(IPC_CHANNELS.${domain}`), false, domain)
+    assert.equal(bootstrap.includes(`ipcMain.handle(IPC_CHANNELS.${domain}`), false, domain)
   }
   for (const registration of [
     'registerSettingsIpc',
@@ -19,7 +35,7 @@ test('keeps domain IPC registration out of the Main composition root', () => {
     'registerQueryIpc',
     'registerExportIpc'
   ]) {
-    assert.equal(main.includes(`${registration}(`), true, registration)
+    assert.equal(bootstrap.includes(`${registration}(`), true, registration)
   }
 })
 
@@ -70,7 +86,7 @@ test('keeps domain SQL in repositories and read queries', () => {
 })
 
 test('keeps window and Overlay lifecycle out of the Main composition root', () => {
-  const main = source('src/main/index.js')
+  const bootstrap = source('src/main/app/bootstrap.mts')
   const windows = source('src/main/app/windows.mts')
   const windowIpc = source('src/main/ipc/register-windows.mts')
   const overlayIpc = source('src/main/ipc/register-overlay.mts')
@@ -81,11 +97,11 @@ test('keeps window and Overlay lifecycle out of the Main composition root', () =
     'ipcMain.on(IPC_CHANNELS.window',
     'ipcMain.on(IPC_CHANNELS.overlay'
   ]) {
-    assert.equal(main.includes(implementation), false, implementation)
+    assert.equal(bootstrap.includes(implementation), false, implementation)
   }
-  assert.equal(main.includes('new DesktopWindowManager'), true)
-  assert.equal(main.includes('registerWindowIpc(windowManager)'), true)
-  assert.equal(main.includes('registerOverlayIpc(windowManager'), true)
+  assert.equal(bootstrap.includes('new DesktopWindowManager'), true)
+  assert.equal(bootstrap.includes('registerWindowIpc(windows)'), true)
+  assert.equal(bootstrap.includes('registerOverlayIpc(windows'), true)
   assert.equal(windows.includes('new BrowserWindow'), true)
   assert.equal(windows.includes('calculateMainWindowLayout'), true)
   assert.equal(windowIpc.includes('IPC_CHANNELS.window.toggleMaximize'), true)
@@ -93,7 +109,7 @@ test('keeps window and Overlay lifecycle out of the Main composition root', () =
 })
 
 test('keeps Platform Worker lifecycle and device IPC out of the Main composition root', () => {
-  const main = source('src/main/index.js')
+  const bootstrap = source('src/main/app/bootstrap.mts')
   const manager = source('src/main/infrastructure/platform-worker/platform-worker-manager.mjs')
   const platformIpc = source('src/main/ipc/register-platform.mts')
   const deviceIpc = source('src/main/ipc/register-devices.mts')
@@ -104,11 +120,11 @@ test('keeps Platform Worker lifecycle and device IPC out of the Main composition
     'ipcMain.handle(IPC_CHANNELS.platform',
     'ipcMain.handle(IPC_CHANNELS.devices'
   ]) {
-    assert.equal(main.includes(implementation), false, implementation)
+    assert.equal(bootstrap.includes(implementation), false, implementation)
   }
-  assert.equal(main.includes('new PlatformWorkerManager'), true)
-  assert.equal(main.includes('registerPlatformIpc(ipcContext, platformWorkerManager)'), true)
-  assert.equal(main.includes('registerDeviceIpc(ipcContext, platformWorkerManager)'), true)
+  assert.equal(bootstrap.includes('new PlatformWorkerManager'), true)
+  assert.equal(bootstrap.includes('registerPlatformIpc(ipcContext, workerManager)'), true)
+  assert.equal(bootstrap.includes('registerDeviceIpc(ipcContext, workerManager)'), true)
   assert.equal(manager.includes("worker.on('exit'"), true)
   assert.equal(manager.includes('this.#maxRestarts'), true)
   assert.equal(platformIpc.includes('IPC_INVALID_WINDOW_ID'), true)
@@ -116,7 +132,7 @@ test('keeps Platform Worker lifecycle and device IPC out of the Main composition
 })
 
 test('keeps application lifecycle and command IPC out of the Main composition root', () => {
-  const main = source('src/main/index.js')
+  const bootstrap = source('src/main/app/bootstrap.mts')
   const lifecycle = source('src/main/app/lifecycle.mts')
   const updates = source('src/main/app/updates.mts')
   const appIpc = source('src/main/ipc/register-app.mts')
@@ -129,14 +145,29 @@ test('keeps application lifecycle and command IPC out of the Main composition ro
     'ipcMain.on(IPC_CHANNELS.app',
     'ipcMain.handle(IPC_CHANNELS.shortcuts'
   ]) {
-    assert.equal(main.includes(implementation), false, implementation)
+    assert.equal(bootstrap.includes(implementation), false, implementation)
   }
-  assert.equal(main.includes('registerAppLifecycle(app'), true)
-  assert.equal(main.includes('registerUpdateNotifications(autoUpdater, windowManager)'), true)
-  assert.equal(main.includes('registerAppIpc(windowManager'), true)
-  assert.equal(main.includes('registerShortcutIpc(windowManager, globalShortcut)'), true)
+  assert.equal(bootstrap.includes('registerAppLifecycle(app'), true)
+  assert.equal(bootstrap.includes('registerUpdateNotifications(autoUpdater, windows)'), true)
+  assert.equal(bootstrap.includes('registerAppIpc(windows'), true)
+  assert.equal(bootstrap.includes('registerShortcutIpc(windows, globalShortcut)'), true)
   assert.equal(lifecycle.includes("app.on('will-quit'"), true)
   assert.equal(updates.includes('IPC_CHANNELS.app.updateDownloaded'), true)
   assert.equal(appIpc.includes('IPC_CHANNELS.app.deleteLocalData'), true)
   assert.equal(shortcutIpc.includes('IPC_CHANNELS.shortcuts.register'), true)
+})
+
+test('keeps local file and export dialog implementation out of bootstrap', () => {
+  const bootstrap = source('src/main/app/bootstrap.mts')
+  const localData = source('src/main/persistence/local-data-manager.mts')
+  const startupLog = source('src/main/infrastructure/filesystem/startup-log.mts')
+  const exportSaver = source('src/main/infrastructure/filesystem/export-artifact-saver.mts')
+
+  for (const implementation of ['rmSync(', 'createWriteStream(', '.showSaveDialog(']) {
+    assert.equal(bootstrap.includes(implementation), false, implementation)
+  }
+  assert.equal(localData.includes('rmSync('), true)
+  assert.equal(startupLog.includes('createWriteStream('), true)
+  assert.equal(exportSaver.includes('.showSaveDialog('), true)
+  assert.equal(exportSaver.includes('EXPORT_WRITE_FAILED'), true)
 })

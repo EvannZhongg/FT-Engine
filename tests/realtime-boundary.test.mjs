@@ -15,7 +15,7 @@ test('keeps the desktop runtime independent from a localhost backend', () => {
   ]
     .map(source)
     .join('\n')
-  const main = source('src/main/index.js')
+  const main = [source('src/main/index.js'), source('src/main/app/bootstrap.mts')].join('\n')
   const html = source('src/renderer/index.html')
   const packageJson = JSON.parse(source('package.json'))
 
