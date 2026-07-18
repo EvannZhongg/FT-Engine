@@ -295,8 +295,9 @@ export const useRefereeStore = defineStore('referee', {
     // 获取系统窗口列表
     async fetchWindows() {
       try {
-        const res = await axios.get(`${this.apiBase}/api/windows`)
-        return res.data.windows || []
+        if (!window.ftEngine?.platform) return []
+        const result = await window.ftEngine.platform.listWindows()
+        return result.windows || []
       } catch (e) {
         console.error("Failed to fetch windows:", e)
         return []
@@ -304,12 +305,12 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     // 获取特定窗口坐标
-    async getWindowBounds(title) {
+    async getWindowBounds(windowId) {
       try {
-        const res = await axios.post(`${this.apiBase}/api/window/bounds`, {title})
-        return res.data
+        if (!window.ftEngine?.platform) return {found: false, bounds: null}
+        return await window.ftEngine.platform.getWindowBounds(windowId)
       } catch {
-        return {found: false}
+        return {found: false, bounds: null}
       }
     },
 

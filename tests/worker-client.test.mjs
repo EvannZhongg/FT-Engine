@@ -90,6 +90,14 @@ test('completes a cross-language handshake with the Python worker', {
     assert.equal(hello.protocolVersion, 1)
     assert.ok(['windows', 'macos', 'unsupported'].includes(hello.platform))
     assert.equal(typeof hello.capabilities.windowTracking, 'boolean')
+    if (hello.capabilities.windowTracking) {
+      const result = await client.request('window.list')
+      assert.ok(Array.isArray(result.windows))
+      for (const window of result.windows) {
+        assert.equal(typeof window.windowId, 'string')
+        assert.equal(typeof window.title, 'string')
+      }
+    }
   } finally {
     await client.stop()
   }

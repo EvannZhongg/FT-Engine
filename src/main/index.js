@@ -442,6 +442,21 @@ app.whenReady().then(async () => {
     console.log('[Electron] Global shortcuts unregistered')
   })
 
+  ipcMain.handle(IPC_CHANNELS.platform.listWindows, async (event) => {
+    assertMainSender(event)
+    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
+    return platformWorker.request('window.list')
+  })
+
+  ipcMain.handle(IPC_CHANNELS.platform.getWindowBounds, async (event, windowId) => {
+    assertMainSender(event)
+    if (typeof windowId !== 'string' || !windowId || windowId.length > 128) {
+      throw new Error('IPC_INVALID_WINDOW_ID')
+    }
+    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
+    return platformWorker.request('window.getBounds', { windowId })
+  })
+
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
     assertMainSender(event)
     return appConfig

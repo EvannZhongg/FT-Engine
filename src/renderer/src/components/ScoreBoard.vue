@@ -142,7 +142,9 @@
         <select v-if="presentationMode === 'window'" v-model="selectedTargetWindow" class="win-select">
           <option value="" disabled>{{ $t('sb_opt_sel_app') }}</option>
           <option value="FULL_SCREEN">{{ $t('sb_opt_full_screen') }}</option>
-          <option v-for="w in windowList" :key="w" :value="w">{{ w }}</option>
+          <option v-for="w in windowList" :key="w.windowId" :value="w.windowId">
+            {{ w.title }}
+          </option>
         </select>
 
         <div v-else class="video-binding-form">

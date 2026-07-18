@@ -17,6 +17,10 @@ export const IPC_CHANNELS = {
     unregister: 'shortcuts:unregister',
     triggered: 'shortcuts:triggered'
   },
+  platform: {
+    listWindows: 'platform:list-windows',
+    getWindowBounds: 'platform:get-window-bounds'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -51,6 +55,20 @@ export interface OverlayBounds {
   height: number
 }
 
+export interface PlatformWindow {
+  windowId: string
+  title: string
+}
+
+export interface WindowListResult {
+  windows: PlatformWindow[]
+}
+
+export interface WindowBoundsResult {
+  found: boolean
+  bounds: OverlayBounds | null
+}
+
 export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
@@ -80,6 +98,10 @@ export interface FtEngineApi {
     register: (shortcut: string) => Promise<ShortcutRegistrationResult>
     unregister: () => void
     onTriggered: (callback: () => void) => Unsubscribe
+  }
+  platform: {
+    listWindows: () => Promise<WindowListResult>
+    getWindowBounds: (windowId: string) => Promise<WindowBoundsResult>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

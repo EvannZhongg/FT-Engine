@@ -25,6 +25,10 @@ const IPC_CHANNELS = {
     unregister: 'shortcuts:unregister',
     triggered: 'shortcuts:triggered'
   },
+  platform: {
+    listWindows: 'platform:list-windows',
+    getWindowBounds: 'platform:get-window-bounds'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -59,6 +63,11 @@ const ftEngine = {
     register: (shortcut) => ipcRenderer.invoke(IPC_CHANNELS.shortcuts.register, shortcut),
     unregister: () => ipcRenderer.send(IPC_CHANNELS.shortcuts.unregister),
     onTriggered: (callback) => subscribe(IPC_CHANNELS.shortcuts.triggered, callback)
+  },
+  platform: {
+    listWindows: () => ipcRenderer.invoke(IPC_CHANNELS.platform.listWindows),
+    getWindowBounds: (windowId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.platform.getWindowBounds, windowId)
   },
   overlay: {
     open: (options) => ipcRenderer.send(IPC_CHANNELS.overlay.open, options),

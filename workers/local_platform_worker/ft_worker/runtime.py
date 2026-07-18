@@ -83,7 +83,7 @@ async def run_stdio():
     if not line:
       break
     response = await runtime.handle_line(line)
-    sys.stdout.write(encode_message(response))
-    sys.stdout.flush()
+    sys.stdout.buffer.write(encode_message(response).encode("utf-8"))
+    sys.stdout.buffer.flush()
     if runtime.should_stop:
       break
