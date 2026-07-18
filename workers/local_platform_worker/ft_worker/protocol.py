@@ -78,5 +78,16 @@ def error_response(request_id: Optional[str], code: str, message: str) -> dict[s
   }
 
 
+def event_message(event: str, payload: Any, event_id: Optional[str] = None) -> dict[str, Any]:
+  message = {
+    "protocolVersion": PROTOCOL_VERSION,
+    "event": event,
+    "payload": payload,
+  }
+  if event_id:
+    message["eventId"] = event_id
+  return message
+
+
 def encode_message(message: dict[str, Any]) -> str:
   return json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"

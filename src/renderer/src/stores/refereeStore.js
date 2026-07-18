@@ -227,15 +227,18 @@ export const useRefereeStore = defineStore('referee', {
 
     async scanDevices(isRefresh = false) {
       try {
-        const res = await axios.get(`${this.apiBase}/scan?flush=${isRefresh}`)
-
-        // 【新增】检查后端是否返回了错误信息
-        if (res.data.error) {
-          console.warn("Scan Error:", res.data.error)
-          throw new Error(res.data.error) // 抛出错误供组件捕获
+        if (!window.ftEngine?.devices) return []
+        const result = await window.ftEngine.devices.scan({
+          flush: Boolean(isRefresh),
+          remarks: this.appSettings.device_remarks || {}
+        })
+        if (result.errors?.length) {
+          console.warn("Scan warnings:", result.errors)
+          if (!result.devices?.length) {
+            throw new Error(result.errors.map(error => error.code).join(', '))
+          }
         }
-
-        return res.data.devices || []
+        return result.devices || []
       } catch (e) {
         console.error("Scan failed:", e)
         throw e

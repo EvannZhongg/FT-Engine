@@ -5,16 +5,20 @@ from .contract import PlatformServices
 
 def create_platform_services(platform_name: str | None = None) -> PlatformServices:
   selected = sys.platform if platform_name is None else platform_name
-  # Capabilities describe implemented Worker commands, not installed libraries.
-  ble_available = False
-  usb_available = False
-
   if selected == "win32":
+    from .windows.device_adapter import WindowsDeviceAdapter
     from .windows.window_tracker import WindowsWindowTracker
-    return PlatformServices("windows", WindowsWindowTracker(), ble_available, usb_available)
+    adapter = WindowsDeviceAdapter()
+    return PlatformServices(
+      "windows", WindowsWindowTracker(), adapter.ble_available, adapter.usb_available, adapter
+    )
   if selected == "darwin":
+    from .macos.device_adapter import MacOSDeviceAdapter
     from .macos.window_tracker import MacOSWindowTracker
-    return PlatformServices("macos", MacOSWindowTracker(), ble_available, usb_available)
+    adapter = MacOSDeviceAdapter()
+    return PlatformServices(
+      "macos", MacOSWindowTracker(), adapter.ble_available, adapter.usb_available, adapter
+    )
 
   from .unsupported import UnsupportedWindowTracker
   return PlatformServices("unsupported", UnsupportedWindowTracker(), False, False)

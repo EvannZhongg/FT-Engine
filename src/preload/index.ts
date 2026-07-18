@@ -29,6 +29,9 @@ const IPC_CHANNELS = {
     listWindows: 'platform:list-windows',
     getWindowBounds: 'platform:get-window-bounds'
   },
+  devices: {
+    scan: 'devices:scan'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -68,6 +71,9 @@ const ftEngine = {
     listWindows: () => ipcRenderer.invoke(IPC_CHANNELS.platform.listWindows),
     getWindowBounds: (windowId) =>
       ipcRenderer.invoke(IPC_CHANNELS.platform.getWindowBounds, windowId)
+  },
+  devices: {
+    scan: (options) => ipcRenderer.invoke(IPC_CHANNELS.devices.scan, options)
   },
   overlay: {
     open: (options) => ipcRenderer.send(IPC_CHANNELS.overlay.open, options),

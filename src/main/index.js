@@ -457,6 +457,25 @@ app.whenReady().then(async () => {
     return platformWorker.request('window.getBounds', { windowId })
   })
 
+  ipcMain.handle(IPC_CHANNELS.devices.scan, async (event, value) => {
+    assertMainSender(event)
+    const options = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    const flush = options.flush === true
+    const rawRemarks = options.remarks && typeof options.remarks === 'object' && !Array.isArray(options.remarks)
+      ? options.remarks : {}
+    const entries = Object.entries(rawRemarks)
+    if (entries.length > 1000) throw new Error('IPC_INVALID_DEVICE_REMARKS')
+    const remarks = {}
+    for (const [deviceId, remark] of entries) {
+      if (deviceId.length > 256 || typeof remark !== 'string' || remark.length > 256) {
+        throw new Error('IPC_INVALID_DEVICE_REMARKS')
+      }
+      remarks[deviceId] = remark
+    }
+    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
+    return platformWorker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
+  })
+
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
     assertMainSender(event)
     return appConfig

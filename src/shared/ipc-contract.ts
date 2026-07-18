@@ -21,6 +21,9 @@ export const IPC_CHANNELS = {
     listWindows: 'platform:list-windows',
     getWindowBounds: 'platform:get-window-bounds'
   },
+  devices: {
+    scan: 'devices:scan'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -69,6 +72,20 @@ export interface WindowBoundsResult {
   bounds: OverlayBounds | null
 }
 
+export interface LocalDevice {
+  name: string
+  address: string
+  deviceId: string
+  rssi: number
+  remark: string
+  transport: 'BLE' | 'USB'
+}
+
+export interface DeviceScanResult {
+  devices: LocalDevice[]
+  errors: Array<{ transport: 'BLE' | 'USB'; code: string }>
+}
+
 export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
@@ -102,6 +119,9 @@ export interface FtEngineApi {
   platform: {
     listWindows: () => Promise<WindowListResult>
     getWindowBounds: (windowId: string) => Promise<WindowBoundsResult>
+  }
+  devices: {
+    scan: (options: { flush: boolean; remarks: Record<string, string> }) => Promise<DeviceScanResult>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

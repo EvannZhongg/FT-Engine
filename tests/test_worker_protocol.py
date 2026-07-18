@@ -27,6 +27,21 @@ class FakeWindowTracker:
     return {"x": -100, "y": 20, "width": 1920, "height": 1080}
 
 
+class FakeDeviceService:
+  def __init__(self):
+    self.last_scan = None
+
+  async def scan(self, flush=False, remarks=None):
+    self.last_scan = {"flush": flush, "remarks": remarks}
+    return {"devices": [], "errors": []}
+
+  async def connect(self, connection_id, device_id):
+    return {"connectionId": connection_id, "deviceId": device_id}
+
+  async def close(self):
+    return None
+
+
 def request_line(request_id="request-1", method="system.ping", params=None, version=1):
   return json.dumps({
     "protocolVersion": version,
@@ -94,6 +109,22 @@ class WorkerProtocolTests(unittest.TestCase):
     response = self.dispatch(method="system.shutdown")
     self.assertEqual(response["result"], {"stopping": True})
     self.assertTrue(self.runtime.should_stop)
+
+  def test_device_handlers_validate_and_forward_requests(self):
+    devices = FakeDeviceService()
+    self.runtime.device_service = devices
+    scanned = self.dispatch(
+      method="device.scan",
+      params={"flush": True, "remarks": {"device-1": "Judge A"}},
+    )
+    self.assertEqual(scanned["result"], {"devices": [], "errors": []})
+    self.assertEqual(devices.last_scan, {
+      "flush": True,
+      "remarks": {"device-1": "Judge A"},
+    })
+
+    invalid = self.dispatch(method="device.connect", params={"deviceId": "device-1"})
+    self.assertEqual(invalid["error"]["code"], "INVALID_PARAMS")
 
   def test_encoded_response_is_one_json_line(self):
     encoded = encode_message({"message": "计分"})
