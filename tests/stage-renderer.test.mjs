@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import {
   clampAttempt,
+  createFreeModeStageInput,
   createGroupDraft,
   toStageDraft,
   toStageInput
@@ -49,6 +50,23 @@ test('creates independent editable Stage graphs and normalized inputs', () => {
   assert.equal(clampAttempt(0, 3), 1)
 })
 
+test('builds the implicit Free Mode graph without tournament concepts', () => {
+  const input = createFreeModeStageInput(4)
+
+  assert.deepEqual(input, {
+    name: 'Main',
+    attempts: 1,
+    groups: [{
+      name: 'Free Mode',
+      refCount: 4,
+      players: ['Player 1'],
+      referees: []
+    }]
+  })
+  assert.deepEqual(createFreeModeStageInput(0).groups[0].refCount, 1)
+  assert.deepEqual(createFreeModeStageInput(99).groups[0].refCount, 32)
+})
+
 test('routes selected Stage and attempt through the Renderer boundary', () => {
   const competitionStore = source('src/renderer/src/stores/competitionStore.js')
   const matchStore = source('src/renderer/src/stores/matchStore.js')
@@ -60,6 +78,8 @@ test('routes selected Stage and attempt through the Renderer boundary', () => {
   assert.equal(competitionStore.includes('window.ftEngine.stages.reorder'), true)
   assert.equal(wizard.includes('selectedStageIdToRun'), true)
   assert.equal(wizard.includes('selectedAttemptToRun'), true)
+  assert.equal(wizard.includes('setupFreeMode'), true)
+  assert.equal(wizard.includes("form.mode === 'TOURNAMENT'"), true)
   assert.equal(scoreboard.includes('competitionStore.activeStage?.name'), true)
   assert.equal(scoreboard.includes('competitionStore.activeAttemptNumber'), true)
 })

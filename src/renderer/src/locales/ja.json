@@ -164,7 +164,7 @@
   "status_error": "エラー",
   "msg_timeout": "接続がタイムアウトしました。",
   "msg_bt_off": "Bluetooth が無効か利用できません。",
-  "msg_scan_failed": "デバイスのスキャンに失敗しました: {message}",
+  "msg_scan_failed": "デバイスのスキャンに失敗しました。状態を確認して再試行してください。",
   "msg_worker_unavailable": "デバイスサービスを利用できません。再試行してください。",
   "msg_worker_retry_failed": "デバイスサービスを再起動できませんでした。ログを確認して再試行してください。",
   "btn_retry_worker": "デバイスサービスを再試行",

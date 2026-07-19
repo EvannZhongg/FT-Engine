@@ -14,9 +14,12 @@
   --workbench-muted-strong: #a6abb3;
   --workbench-accent: #5f8d79;
   --workbench-accent-soft: #263a31;
+  --workbench-success: #73c997;
+  --workbench-success-soft: #263a31;
   --workbench-danger: #ff8f88;
   --workbench-danger-soft: #392425;
   --workbench-warning: #d8b667;
+  --workbench-warning-soft: #3b3423;
   --score-text: #f4f4f5;
   --score-text-secondary: #d8dade;
   --score-positive: #73c997;

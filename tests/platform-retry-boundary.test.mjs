@@ -23,6 +23,6 @@ test('routes manual Platform Worker recovery from both Renderer workflows', () =
   assert.equal(scoreboard.includes('@click="retryPlatformWorker"'), true)
   assert.equal(scoreboard.includes("store.matchStatus.worker === 'error'"), true)
   assert.equal(wizard.includes('workerRetryAvailable'), true)
-  assert.equal(wizard.includes("msg.includes('WORKER_')"), true)
+  assert.equal(wizard.includes("code.startsWith('WORKER_')"), true)
   assert.equal(wizard.includes('await startScan(true)'), true)
 })

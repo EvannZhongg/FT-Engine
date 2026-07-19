@@ -142,7 +142,12 @@ export interface LocalDevice {
 
 export interface DeviceScanResult {
   devices: LocalDevice[]
-  errors: Array<{ transport: 'BLE' | 'USB'; code: string }>
+  errors: Array<{
+    transport: 'BLE' | 'USB' | 'WORKER'
+    code: string
+    message: string
+    retryable: boolean
+  }>
 }
 
 export interface DeviceShutdownStep {

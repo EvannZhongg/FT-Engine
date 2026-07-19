@@ -12,13 +12,15 @@
 
     <div class="steps-header">
       <div :class="['step', { active: currentStep >= 1 }]">{{ $t('wiz_step_proj') }}</div>
-      <div class="divider"></div>
-      <div :class="['step', { active: currentStep >= 2 }]">
-        {{ $t('wiz_step_stage') }}
-      </div>
+      <template v-if="form.mode === 'TOURNAMENT'">
+        <div class="divider"></div>
+        <div :class="['step', { active: currentStep >= 2 }]">
+          {{ $t('wiz_step_stage') }}
+        </div>
+      </template>
       <div class="divider"></div>
       <div :class="['step', { active: currentStep === 3 }]">
-        {{ '3. ' + $t('wiz_step_dev') }}
+        {{ (form.mode === 'FREE' ? '2. ' : '3. ') + $t('wiz_step_dev') }}
       </div>
     </div>
 
@@ -41,6 +43,17 @@
         </div>
       </div>
 
+      <div v-if="form.mode === 'FREE'" class="form-group">
+        <label>{{ $t('wiz_ref_count') }}</label>
+        <input
+          v-model.number="form.refCount"
+          type="number"
+          min="1"
+          max="32"
+          :disabled="isResuming && !canEditStageStructure"
+        />
+      </div>
+
       <p v-if="setupError" class="setup-error" role="alert">{{ setupError }}</p>
       <div class="actions">
         <button class="btn-secondary" @click="$emit('cancel')">{{ $t('btn_cancel') }}</button>
@@ -48,7 +61,7 @@
       </div>
     </div>
 
-    <div v-if="currentStep === 2" class="step-content stage-manager">
+    <div v-if="currentStep === 2 && form.mode === 'TOURNAMENT'" class="step-content stage-manager">
       <div class="section-heading">
         <h2>{{ $t('wiz_s2_title') }}</h2>
         <button v-if="currentEditStage?.status === 'active'" class="btn-complete-stage" type="button" @click="completeCurrentStage">
@@ -118,8 +131,8 @@
 
     <div v-if="currentStep === 3" class="step-content">
       <div class="scan-bar">
-        <h2>{{ $t('wiz_step_prefix') }} 3: {{ $t('wiz_s3_title') }}</h2>
-        <div class="run-context-selectors">
+        <h2>{{ $t('wiz_step_prefix') }} {{ form.mode === 'FREE' ? 2 : 3 }}: {{ $t('wiz_s3_title') }}</h2>
+        <div v-if="form.mode === 'TOURNAMENT'" class="run-context-selectors">
           <label><span>{{ $t('wiz_target_stage') }}</span><select v-model="selectedStageIdToRun" @change="handleRunStageChange"><option v-for="stage in runnableStages" :key="stage.id" :value="stage.id">{{ stage.name }}</option></select></label>
           <label><span>{{ $t('wiz_target_group') }}</span><select v-model="selectedGroupNameToRun" @change="refreshBindingSlots"><option v-for="group in selectedStageToRun?.groups || []" :key="group.name" :value="group.name">{{ group.name }} ({{ group.refCount }} {{ $t('wiz_suffix_refs') }})</option></select></label>
           <label><span>{{ $t('wiz_target_attempt') }}</span><select v-model.number="selectedAttemptToRun"><option v-for="attempt in attemptOptions" :key="attempt" :value="attempt">{{ $t('attempt_label', { number: attempt }) }}</option></select></label>
@@ -189,7 +202,7 @@
 
       <p v-if="setupError" class="setup-error" role="alert">{{ setupError }}</p>
       <div class="actions">
-        <button class="btn-secondary" @click="currentStep = 2">{{ $t('btn_back') }}</button>
+        <button class="btn-secondary" @click="currentStep = form.mode === 'FREE' ? 1 : 2">{{ $t('btn_back') }}</button>
         <button class="btn-success" :disabled="!canStartMatch" @click="finishSetup">{{ $t('btn_start') }}</button>
       </div>
     </div>
@@ -360,7 +373,13 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { Check, ChevronDown, ChevronUp, Plus, RotateCcw, Tag, Trash2, Upload } from 'lucide-vue-next'
 import { read, utils } from 'xlsx'
 import { useI18n } from 'vue-i18n'
-import { clampAttempt, createGroupDraft, toStageDraft, toStageInput } from '../features/competitions/stageDrafts.mjs'
+import {
+  clampAttempt,
+  createFreeModeStageInput,
+  createGroupDraft,
+  toStageDraft,
+  toStageInput
+} from '../features/competitions/stageDrafts.mjs'
 import DialogShell from './DialogShell.vue'
 
 const { t } = useI18n()
@@ -374,7 +393,7 @@ const isScanning = ref(false)
 const isRetryingWorker = ref(false)
 const workerRetryAvailable = ref(false)
 const scannedDevices = ref([])
-const form = reactive({ projectName: 'New Match', mode: 'FREE' })
+const form = reactive({ projectName: 'New Match', mode: 'FREE', refCount: 1 })
 const stageDrafts = ref([])
 const currentEditStage = ref(null)
 const currentEditGroup = ref(null)
@@ -418,6 +437,9 @@ onMounted(async () => {
     form.projectName = store.projectConfig.name
     form.mode = store.projectConfig.mode
     await loadStageDrafts()
+    if (form.mode === 'FREE') {
+      form.refCount = stageDrafts.value[0]?.groups?.[0]?.refCount || 1
+    }
     currentStep.value = 1
   }
   // 确保配置已加载，以便读取 device_remarks
@@ -476,6 +498,10 @@ const confirmImport = () => {
 const handleStep1Next = async () => {
   setupError.value = ''
   try {
+    if (form.mode === 'FREE') {
+      await setupFreeMode()
+      return
+    }
     if (!isResuming.value) await store.createProject(form.projectName, form.mode)
     if (stageDrafts.value.length === 0) await loadStageDrafts()
     currentStep.value = 2
@@ -483,6 +509,28 @@ const handleStep1Next = async () => {
     console.error('Step 1 Error:', error)
     setupError.value = t('msg_create_fail')
   }
+}
+
+const setupFreeMode = async () => {
+  const wasResuming = isResuming.value
+  if (!wasResuming) await store.createProject(form.projectName, 'FREE')
+  if (stageDrafts.value.length === 0) await loadStageDrafts()
+  const stage = stageDrafts.value[0]
+  if (!stage) throw new Error('FREE_MODE_STAGE_UNAVAILABLE')
+  const currentGroup = stage.groups?.[0] || {}
+  const stageInput = createFreeModeStageInput(form.refCount, currentGroup)
+  if (!wasResuming || canEditStageStructure.value) {
+    await store.updateStage(stage.id, stageInput)
+    await store.updateProjectDetails(form.projectName, 'FREE', stageInput.groups)
+  }
+  await loadStageDrafts(stage.id)
+  const target = stageDrafts.value[0]
+  selectedStageIdToRun.value = target?.id || ''
+  selectedGroupNameToRun.value = 'Free Mode'
+  selectedAttemptToRun.value = 1
+  refreshBindingSlots()
+  currentStep.value = 3
+  if (scannedDevices.value.length === 0) void startScan(false)
 }
 
 const addNewStage = async () => {
@@ -621,14 +669,14 @@ const startScan = async (isRefresh = true) => {
     return true
   } catch (e) {
     console.error("Scan error", e)
-    const msg = e instanceof Error ? e.message : String(e)
-    workerRetryAvailable.value = msg.includes('WORKER_')
-    if (msg.includes('Bluetooth') || msg.includes('powered off')) {
+    const code = e && typeof e === 'object' && typeof e.code === 'string' ? e.code : 'DEVICE_SCAN_FAILED'
+    workerRetryAvailable.value = code.startsWith('WORKER_')
+    if (code === 'BLE_POWERED_OFF' || code === 'BLE_ADAPTER_MISSING') {
       setupError.value = t('msg_bt_off')
     } else if (workerRetryAvailable.value) {
       setupError.value = t('msg_worker_unavailable')
     } else {
-      setupError.value = t('msg_scan_failed', { message: msg })
+      setupError.value = t('msg_scan_failed')
     }
     return false
   }
@@ -817,45 +865,45 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
 .form-group { min-width: 0; margin-bottom: 20px; label { display: block; margin-bottom: 8px; color: var(--workbench-text-secondary); } input, textarea, select { width: 100%; box-sizing: border-box; padding: 10px; background: var(--workbench-surface); border: 1px solid var(--workbench-border); color: var(--workbench-text); border-radius: 4px; outline: none; &:focus { border-color: var(--workbench-accent); } &:disabled { color: var(--workbench-muted); background: var(--workbench-input); } } textarea { resize: vertical; min-height: 100px; } .hint { color: var(--workbench-muted); font-size: 0.8rem; margin-top: 4px; display: block; } }
 .radio-group { display: flex; gap: 20px; label { cursor: pointer; padding: 10px 20px; background: var(--workbench-surface); border: 1px solid var(--workbench-border); border-radius: 4px; transition: all 0.2s; &.checked { background: var(--workbench-accent); border-color: var(--workbench-accent); } input { display: none; } } }
 .section-heading { min-height: 42px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; h2 { margin-top: 0; } }
-.btn-complete-stage { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid #4d8a70; border-radius: 4px; background: #244737; color: #d8f3e6; cursor: pointer; }
+.btn-complete-stage { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--workbench-success); border-radius: 4px; background: var(--workbench-success-soft); color: var(--workbench-success); cursor: pointer; }
 .stage-manager .manager-layout { height: 430px; display: grid; grid-template-columns: 190px 170px minmax(330px, 1fr); gap: 12px; }
 .stage-sidebar, .group-sidebar { min-width: 0; border: 1px solid var(--workbench-border); background: var(--workbench-surface); display: flex; flex-direction: column; }
 .list-header { padding: 10px; background: var(--workbench-surface-raised); color: var(--workbench-text-secondary); font-size: 0.82rem; font-weight: bold; text-align: center; }
 .entity-list { min-height: 0; flex: 1; overflow-y: auto; }
-.stage-item, .group-item { width: 100%; min-height: 42px; box-sizing: border-box; padding: 8px 10px; border: 0; border-bottom: 1px solid #333; background: transparent; color: #ddd; text-align: left; cursor: pointer; overflow: hidden; }
-.stage-item { display: flex; flex-direction: column; justify-content: center; gap: 2px; span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } small { color: #858a90; font-size: 0.7rem; } }
-.stage-item:hover, .group-item:hover { background: #2f2f2f; }
-.stage-item.active, .group-item.active { background: #315c78; color: white; small { color: #d7e7f2; } }
-.stage-list-actions { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #3d3d3d; button { height: 38px; display: flex; align-items: center; justify-content: center; border: 0; border-right: 1px solid #3d3d3d; background: #292929; color: #ccc; cursor: pointer; &:last-child { border-right: 0; } &:hover:not(:disabled) { background: #383838; color: white; } &:disabled { opacity: 0.35; cursor: default; } &.danger-icon { color: #ef9a9a; } } }
-.btn-add-group { min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 0; border-top: 1px solid #3d3d3d; background: #2b6249; color: white; cursor: pointer; font-weight: bold; &:hover:not(:disabled) { background: #34785a; } &:disabled { opacity: 0.45; cursor: default; } }
-.main-edit { min-width: 0; box-sizing: border-box; background: #252526; padding: 18px; border: 1px solid #3d3d3d; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+.stage-item, .group-item { width: 100%; min-height: 42px; box-sizing: border-box; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--workbench-border-subtle); background: transparent; color: var(--workbench-text-secondary); text-align: left; cursor: pointer; overflow: hidden; }
+.stage-item { display: flex; flex-direction: column; justify-content: center; gap: 2px; span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } small { color: var(--workbench-muted); font-size: 0.7rem; } }
+.stage-item:hover, .group-item:hover { background: var(--workbench-surface-hover); }
+.stage-item.active, .group-item.active { background: var(--workbench-accent-soft); color: var(--workbench-text); small { color: var(--workbench-accent); } }
+.stage-list-actions { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--workbench-border-subtle); button { height: 38px; display: flex; align-items: center; justify-content: center; border: 0; border-right: 1px solid var(--workbench-border-subtle); background: var(--workbench-surface-raised); color: var(--workbench-text-secondary); cursor: pointer; &:last-child { border-right: 0; } &:hover:not(:disabled) { background: var(--workbench-surface-hover); color: var(--workbench-text); } &:disabled { opacity: 0.35; cursor: default; } &.danger-icon { color: var(--workbench-danger); } } }
+.btn-add-group { min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 0; border-top: 1px solid var(--workbench-border-subtle); background: var(--workbench-success-soft); color: var(--workbench-success); cursor: pointer; font-weight: bold; &:hover:not(:disabled) { background: var(--workbench-accent-soft); } &:disabled { opacity: 0.45; cursor: default; } }
+.main-edit { min-width: 0; box-sizing: border-box; background: var(--workbench-surface); padding: 18px; border: 1px solid var(--workbench-border-subtle); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
 .stage-fields { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 12px; }
 .attempts-field input { text-align: center; }
-.edit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #3d3d3d; }
+.edit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--workbench-border-subtle); }
 .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; label { margin-bottom: 0; } }
-.btn-import-mini { background: #252526; border: 1px solid #3498db; color: #3498db; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s; &:hover:not(:disabled) { background: #3498db; color: white; } &:disabled { opacity: 0.45; cursor: default; } }
-.setup-error { margin: 14px 0 0; padding: 9px 11px; border-left: 3px solid #d36b6b; background: #392425; color: #ffc3c3; font-size: 0.86rem; }
-.setup-notice { margin: 0 0 14px; padding: 9px 11px; border-left: 3px solid #62a882; background: #21382d; color: #c7f0d8; font-size: 0.82rem; }
+.btn-import-mini { background: var(--workbench-surface); border: 1px solid var(--workbench-accent); color: var(--workbench-accent); padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s; &:hover:not(:disabled) { background: var(--workbench-accent); color: white; } &:disabled { opacity: 0.45; cursor: default; } }
+.setup-error { margin: 14px 0 0; padding: 9px 11px; border-left: 3px solid var(--workbench-danger); background: var(--workbench-danger-soft); color: var(--workbench-danger); font-size: 0.86rem; }
+.setup-notice { margin: 0 0 14px; padding: 9px 11px; border-left: 3px solid var(--workbench-success); background: var(--workbench-success-soft); color: var(--workbench-success); font-size: 0.82rem; }
 .scan-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 14px 20px; margin-bottom: 20px; h2 { width: 100%; margin: 0; } }
-.run-context-selectors { min-width: 0; flex: 1; display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: #aaa; font-size: 0.78rem; } select { width: 100%; min-width: 0; box-sizing: border-box; height: 34px; padding: 0 8px; } }
-.scan-controls { display: flex; align-items: center; gap: 10px; .status { margin-right: 10px; color: #aaa; font-size: 0.9rem; &.scanning { color: #f39c12; animation: blink 1s infinite; } } }
+.run-context-selectors { min-width: 0; flex: 1; display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: var(--workbench-muted-strong); font-size: 0.78rem; } select { width: 100%; min-width: 0; box-sizing: border-box; height: 34px; padding: 0 8px; } }
+.scan-controls { display: flex; align-items: center; gap: 10px; .status { margin-right: 10px; color: var(--workbench-muted-strong); font-size: 0.9rem; &.scanning { color: var(--workbench-warning); animation: blink 1s infinite; } } }
 .btn-scan, .btn-worker-retry { min-height: 34px; box-sizing: border-box; padding: 0 12px; border: 1px solid transparent; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; }
-.btn-scan { background: #b46d13; &:hover:not(:disabled) { background: #d17b11; } }
-.btn-worker-retry { min-width: 132px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: #7a3439; border-color: #a95158; &:hover:not(:disabled) { background: #914047; } .spinning { animation: worker-spin 0.8s linear infinite; } }
+.btn-scan { background: var(--workbench-warning); color: var(--workbench-bg); &:hover:not(:disabled) { filter: brightness(1.1); } }
+.btn-worker-retry { min-width: 132px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: var(--workbench-danger-soft); border-color: var(--workbench-danger); &:hover:not(:disabled) { background: var(--workbench-danger); color: var(--workbench-bg); } .spinning { animation: worker-spin 0.8s linear infinite; } }
 .btn-scan:disabled, .btn-worker-retry:disabled { opacity: 0.5; cursor: wait; }
 .device-list-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
-.ref-card { background: #252526; border: 1px solid #3d3d3d; border-radius: 6px; .card-header { background: #333; padding: 8px 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; .ref-name-input { background: #333; border: 1px solid #555; color: white; padding: 4px 8px; border-radius: 4px; margin-left: 8px; width: 140px; font-size: 0.9rem; &:focus { border-color: #3498db; outline: none; } } } .card-body { padding: 10px; } .row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; label { width: 70px; font-size: 0.85rem; color: #888; margin: 0; } select { width: 180px; padding: 4px; font-size: 0.9rem; } } }
-.actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--workbench-border-subtle); button { padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; &.btn-primary { background: var(--workbench-accent); color: white; &:hover { filter: brightness(1.12); } } &.btn-secondary { background: var(--workbench-surface-raised); color: var(--workbench-text); &:hover { background: var(--workbench-surface-hover); } } &.btn-success { background: #2ecc71; color: white; &:hover { background: #27ae60; } } &.btn-scan { background: #f39c12; color: white; &:hover { background: #d35400; } } &:disabled { opacity: 0.5; cursor: not-allowed; } } }
-.connect-dialog { background: #252526; padding: 20px; width: 350px; border-radius: 8px; text-align: center; }
-.status-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; .tag { font-size: 0.8rem; padding: 2px 6px; border-radius: 3px; margin-left: 5px; &.connected { background: #27ae60; } &.connecting { background: #f39c12; } &.error { background: #c0392b; } &.waiting { background: #555; } } }
+.ref-card { background: var(--workbench-surface); border: 1px solid var(--workbench-border-subtle); border-radius: 6px; .card-header { background: var(--workbench-surface-raised); padding: 8px 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; .ref-name-input { background: var(--workbench-input); border: 1px solid var(--workbench-border); color: var(--workbench-text); padding: 4px 8px; border-radius: 4px; margin-left: 8px; width: 140px; font-size: 0.9rem; &:focus { border-color: var(--workbench-accent); outline: none; } } } .card-body { padding: 10px; } .row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; label { width: 70px; font-size: 0.85rem; color: var(--workbench-muted-strong); margin: 0; } select { width: 180px; padding: 4px; font-size: 0.9rem; } } }
+.actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--workbench-border-subtle); button { padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; &.btn-primary { background: var(--workbench-accent); color: white; &:hover { filter: brightness(1.12); } } &.btn-secondary { background: var(--workbench-surface-raised); color: var(--workbench-text); &:hover { background: var(--workbench-surface-hover); } } &.btn-success { background: var(--workbench-success); color: var(--workbench-bg); &:hover { filter: brightness(1.1); } } &.btn-scan { background: var(--workbench-warning); color: var(--workbench-bg); &:hover { filter: brightness(1.1); } } &:disabled { opacity: 0.5; cursor: not-allowed; } } }
+.connect-dialog { background: var(--workbench-surface); padding: 20px; width: 350px; border-radius: 8px; text-align: center; }
+.status-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid var(--workbench-border-subtle); padding-bottom: 4px; .tag { font-size: 0.8rem; padding: 2px 6px; border-radius: 3px; margin-left: 5px; &.connected { background: var(--workbench-success); color: var(--workbench-bg); } &.connecting { background: var(--workbench-warning); color: var(--workbench-bg); } &.error { background: var(--workbench-danger); color: var(--workbench-bg); } &.waiting { background: var(--workbench-muted); color: var(--workbench-bg); } } }
 .dialog-actions { margin-top: 15px; button { margin: 0 5px; } }
 .import-dialog { background: var(--workbench-surface); padding: 20px; width: 500px; border-radius: 8px; display: flex; flex-direction: column; max-height: 80vh; h3 { margin-top: 0; margin-bottom: 10px; color: var(--workbench-text); } .sub-text { color: var(--workbench-muted-strong); font-size: 0.9rem; margin-bottom: 15px; } .column-list { flex: 1; overflow-y: auto; border: 1px solid var(--workbench-border); border-radius: 4px; margin-bottom: 20px; } .column-item { display: flex; align-items: center; padding: 10px; border-bottom: 1px solid var(--workbench-border-subtle); cursor: pointer; transition: background 0.2s; &:last-child { border-bottom: none; } &:hover { background: var(--workbench-surface-hover); } &.active { background: var(--workbench-accent-soft); border-left: 3px solid var(--workbench-accent); } .col-header { width: 80px; font-weight: bold; color: var(--workbench-text-secondary); } .col-preview { flex: 1; color: var(--workbench-muted-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0 10px; } .col-count { font-size: 0.8rem; color: var(--workbench-muted); } } }
 
 /* 【新增】Alias 按钮与弹窗样式 */
 .btn-alias {
-  background: #252526;
-  border: 1px solid #555;
-  color: #ccc;
+  background: var(--workbench-surface);
+  border: 1px solid var(--workbench-border);
+  color: var(--workbench-text-secondary);
   padding: 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -863,7 +911,7 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  &:hover { background: #333; color: white; }
+  &:hover { background: var(--workbench-surface-hover); color: var(--workbench-text); }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
@@ -874,31 +922,31 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
     justify-content: space-between;
     align-items: center;
     padding: 10px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--workbench-border-subtle);
     &:last-child { border-bottom: none; }
 
     .dev-info {
       flex: 1;
-      .dev-name { font-weight: bold; color: #eee; }
-      .dev-addr { font-size: 0.8rem; color: #888; }
+      .dev-name { font-weight: bold; color: var(--workbench-text); }
+      .dev-addr { font-size: 0.8rem; color: var(--workbench-muted); }
     }
 
     .alias-input {
       width: 180px;
       padding: 6px;
-      background: #111;
-      border: 1px solid #444;
-      color: white;
+      background: var(--workbench-input);
+      border: 1px solid var(--workbench-border);
+      color: var(--workbench-text);
       border-radius: 4px;
       margin-left: 10px;
       font-size: 0.9rem;
-      &:focus { border-color: #3498db; }
+      &:focus { border-color: var(--workbench-accent); }
     }
   }
   .no-data {
     text-align: center;
     padding: 20px;
-    color: #888;
+    color: var(--workbench-muted);
   }
 }
 
@@ -911,7 +959,7 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
     gap: 12px;
     align-items: center;
     padding: 12px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--workbench-border-subtle);
 
     &:last-child { border-bottom: none; }
   }
@@ -934,15 +982,15 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
       width: 18px;
       height: 18px;
       border-radius: 4px;
-      border: 1px solid #555;
-      background: #111;
+      border: 1px solid var(--workbench-border);
+      background: var(--workbench-input);
       display: inline-block;
       position: relative;
     }
 
     input:checked + .checkbox-mark {
-      background: #3498db;
-      border-color: #3498db;
+      background: var(--workbench-accent);
+      border-color: var(--workbench-accent);
     }
 
     input:checked + .checkbox-mark::after {
@@ -963,12 +1011,12 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
 
     .target-label {
       font-size: 0.75rem;
-      color: #888;
+      color: var(--workbench-muted);
       margin-bottom: 4px;
     }
 
     .target-name {
-      color: #7fd0ff;
+      color: var(--workbench-accent);
       font-weight: bold;
       word-break: break-word;
     }

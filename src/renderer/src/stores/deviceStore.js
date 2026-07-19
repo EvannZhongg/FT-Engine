@@ -21,7 +21,11 @@ export const useDeviceStore = defineStore('devices', {
           remarks: settingsStore.appSettings.device_remarks || {}
         })
         if (result.errors?.length && !result.devices?.length) {
-          throw new Error(result.errors.map((error) => error.code).join(', '))
+          const firstError = result.errors[0]
+          const error = new Error(firstError.message || firstError.code || 'Device scan failed')
+          error.code = firstError.code || 'DEVICE_SCAN_FAILED'
+          error.retryable = firstError.retryable !== false
+          throw error
         }
         if (result.errors?.length) console.warn('Scan warnings:', result.errors)
         this.scanStatus = 'ready'
@@ -29,7 +33,9 @@ export const useDeviceStore = defineStore('devices', {
         return result.devices || []
       } catch (error) {
         this.scanStatus = 'error'
-        this.errorCode = error instanceof Error ? error.message : 'DEVICE_SCAN_FAILED'
+        this.errorCode = error instanceof Error && typeof error.code === 'string'
+          ? error.code
+          : 'DEVICE_SCAN_FAILED'
         console.error('Scan failed:', error)
         throw error
       }
@@ -59,7 +65,9 @@ export const useDeviceStore = defineStore('devices', {
       })()
         .catch((error) => {
           this.workerStatus = 'error'
-          this.errorCode = error instanceof Error ? error.message : 'WORKER_RETRY_FAILED'
+          this.errorCode = error instanceof Error && typeof error.code === 'string'
+            ? error.code
+            : 'WORKER_RETRY_FAILED'
           throw error
         })
         .finally(() => {

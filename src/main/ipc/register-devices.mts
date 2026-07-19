@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../../shared/ipc-contract.ts'
 import type { IpcRegistrationContext } from './context.mts'
+import { createDeviceScanFailure, normalizeDeviceScanResult } from './device-scan-dto.mts'
 
 interface WorkerRequester {
   request(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<unknown>
@@ -21,7 +22,13 @@ export function registerDeviceIpc(context: IpcRegistrationContext, worker: Worke
       }
       remarks[deviceId] = remark
     }
-    return worker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
+    try {
+      return normalizeDeviceScanResult(
+        await worker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
+      )
+    } catch (error) {
+      return createDeviceScanFailure(errorCode(error, 'WORKER_SCAN_FAILED'))
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.devices.rename, async (event, value: unknown) => {

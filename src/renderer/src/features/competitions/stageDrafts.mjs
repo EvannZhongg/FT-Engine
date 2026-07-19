@@ -8,6 +8,26 @@ export function createGroupDraft(index = 0, mode = 'TOURNAMENT') {
   }
 }
 
+export function createFreeModeStageInput(refCount = 1, existing = {}) {
+  const count = Math.min(32, Math.max(1, Number(refCount) || 1))
+  const players = Array.isArray(existing.players) && existing.players.length > 0
+    ? existing.players.slice(0, 1)
+    : ['Player 1']
+  const referees = Array.isArray(existing.referees)
+    ? existing.referees.map((referee) => ({ ...referee }))
+    : []
+  return {
+    name: 'Main',
+    attempts: 1,
+    groups: [{
+      name: 'Free Mode',
+      refCount: count,
+      players,
+      referees
+    }]
+  }
+}
+
 export function toStageDraft(stage, mode = 'TOURNAMENT') {
   const groups = (stage.groups || []).map((group) => ({
     ...group,
