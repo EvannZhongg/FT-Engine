@@ -20,8 +20,12 @@ from .device_protocol import (
 )
 
 
-SERVICE_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
-CHARACTERISTIC_UUID = SERVICE_UUID
+# UUIDs are derived from the NimBLE BLE_UUID128_INIT declarations in
+# clicker_main.c. NimBLE stores UUID bytes in little-endian order, so the
+# advertised service and characteristics use the 01/02/03 suffixes below.
+SERVICE_UUID = "015018d0-6951-4a81-de4f-453d8dae9128"
+CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
+ACTIVATION_UUID = "035018d0-6951-4a81-de4f-453d8dae9128"
 DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 DEVICE_NAME_PREFIX = "Counter-"
 

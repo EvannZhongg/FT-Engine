@@ -59,6 +59,16 @@ test('splits Renderer state by domain and removes native page dialogs', () => {
   }
 })
 
+test('clones reactive device remarks before the device IPC boundary', () => {
+  const deviceStore = source('src/renderer/src/stores/deviceStore.js')
+  const setupWizard = source('src/renderer/src/components/SetupWizard.vue')
+  assert.match(deviceStore, /Object\.fromEntries\(/)
+  assert.match(deviceStore, /Object\.entries\(settingsStore\.appSettings\.device_remarks/)
+  assert.doesNotMatch(deviceStore, /remarks:\s*settingsStore\.appSettings\.device_remarks\s*\|\|\s*\{\}/)
+  assert.match(setupWizard, /const goToStep = \(step\) =>/)
+  assert.match(setupWizard, /setupError\.value = ''[\s\S]*currentStep\.value = step/)
+})
+
 test('routes operational workspace structure through shared semantic tokens', () => {
   const tokens = source('src/renderer/src/assets/main.css')
   for (const token of [

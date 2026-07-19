@@ -16,7 +16,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "test": "node --test tests/app-commands.test.mjs tests/app-lifecycle.test.mjs tests/competition-service.test.mjs tests/device-lifecycle.test.mjs tests/device-scan-boundary.test.mjs tests/export-artifact-saver.test.mjs tests/export-boundary.test.mjs tests/export-service.test.mjs tests/free-mode-workflow.test.mjs tests/local-data-manager.test.mjs tests/local-database.test.mjs tests/main-boundary.test.mjs tests/match-boundary.test.mjs tests/match-device-session.test.mjs tests/match-progress.test.mjs tests/match-session-notifier.test.mjs tests/match-session.test.mjs tests/media-session.test.mjs tests/platform-retry-boundary.test.mjs tests/platform-worker-manager.test.mjs tests/project-boundary.test.mjs tests/realtime-boundary.test.mjs tests/renderer-shell.test.mjs tests/replay-scores.test.mjs tests/score-display.test.mjs tests/scoring-domain.test.mjs tests/security-boundary.test.mjs tests/settings-boundary.test.mjs tests/stage-boundary.test.mjs tests/stage-renderer.test.mjs tests/stage-service.test.mjs tests/startup-log.test.mjs tests/window-layout.test.mjs tests/worker-client.test.mjs tests/youtube-media.test.mjs",
+    "test": "node --test tests/app-commands.test.mjs tests/app-lifecycle.test.mjs tests/competition-service.test.mjs tests/device-lifecycle.test.mjs tests/device-scan-boundary.test.mjs tests/export-artifact-saver.test.mjs tests/export-boundary.test.mjs tests/export-service.test.mjs tests/free-mode-workflow.test.mjs tests/local-data-manager.test.mjs tests/local-database.test.mjs tests/main-boundary.test.mjs tests/match-boundary.test.mjs tests/match-device-session.test.mjs tests/match-progress.test.mjs tests/match-session-notifier.test.mjs tests/match-session.test.mjs tests/media-session.test.mjs tests/package-boundary.test.mjs tests/platform-retry-boundary.test.mjs tests/platform-worker-manager.test.mjs tests/project-boundary.test.mjs tests/realtime-boundary.test.mjs tests/renderer-shell.test.mjs tests/replay-scores.test.mjs tests/score-display.test.mjs tests/scoring-domain.test.mjs tests/security-boundary.test.mjs tests/settings-boundary.test.mjs tests/stage-boundary.test.mjs tests/stage-renderer.test.mjs tests/stage-service.test.mjs tests/startup-log.test.mjs tests/window-layout.test.mjs tests/worker-client.test.mjs tests/youtube-media.test.mjs",
     "build:worker": "node scripts/build-worker.js",
     "build:worker:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-worker-win.ps1",
     "build:worker:mac": "bash ./scripts/build-worker-mac.sh",
@@ -42,11 +42,10 @@
       {
         "provider": "github",
         "owner": "evannzhongg",
-        "repo": "ft-engine"
+        "repo": "FT-Studio"
       }
     ],
     "win": {
-      "verifyUpdateCodeSignature": false,
       "icon": "resources/icon.png",
       "target": [
         {
@@ -68,7 +67,6 @@
       ]
     },
     "mac": {
-      "identity": null,
       "target": [
         "dmg"
       ],

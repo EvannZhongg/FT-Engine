@@ -12,7 +12,11 @@ from workers.local_platform_worker.ft_worker.device_protocol import (
   USB_RSP_IDENTIFY,
   build_usb_frame,
 )
-from workers.local_platform_worker.ft_worker.devices import DeviceService
+from workers.local_platform_worker.ft_worker.devices import (
+  CHARACTERISTIC_UUID,
+  SERVICE_UUID,
+  DeviceService,
+)
 
 
 class FakeBleDevice:
@@ -140,6 +144,10 @@ class FakeUsbAdapter:
 
 
 class DeviceServiceTests(unittest.TestCase):
+  def test_ble_protocol_targets_match_firmware_gatt_layout(self):
+    self.assertEqual(SERVICE_UUID, "015018d0-6951-4a81-de4f-453d8dae9128")
+    self.assertEqual(CHARACTERISTIC_UUID, "025018d0-6951-4a81-de4f-453d8dae9128")
+
   def test_ble_scan_session_commands_and_deterministic_events(self):
     async def scenario():
       emitted = []

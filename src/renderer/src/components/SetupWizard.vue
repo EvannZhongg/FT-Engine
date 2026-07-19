@@ -124,7 +124,7 @@
       </div>
       <p v-if="setupError" class="setup-error" role="alert">{{ setupError }}</p>
       <div class="actions">
-        <button class="btn-secondary" @click="currentStep = 1">{{ $t('btn_back') }}</button>
+        <button class="btn-secondary" @click="goToStep(1)">{{ $t('btn_back') }}</button>
         <button class="btn-primary" :disabled="isSavingStages" @click="handleStep2Next">{{ isSavingStages ? $t('status_saving') : $t('btn_save_next') }}</button>
       </div>
     </div>
@@ -202,7 +202,7 @@
 
       <p v-if="setupError" class="setup-error" role="alert">{{ setupError }}</p>
       <div class="actions">
-        <button class="btn-secondary" @click="currentStep = form.mode === 'FREE' ? 1 : 2">{{ $t('btn_back') }}</button>
+        <button class="btn-secondary" @click="goToStep(form.mode === 'FREE' ? 1 : 2)">{{ $t('btn_back') }}</button>
         <button class="btn-success" :disabled="!canStartMatch" @click="finishSetup">{{ $t('btn_start') }}</button>
       </div>
     </div>
@@ -416,6 +416,12 @@ const selectedStageToRun = computed(() => stageDrafts.value.find(stage => stage.
 const selectedGroupToRun = computed(() => selectedStageToRun.value?.groups.find(group => group.name === selectedGroupNameToRun.value))
 const attemptOptions = computed(() => Array.from({ length: selectedStageToRun.value?.attempts || 1 }, (_, index) => index + 1))
 const canStartMatch = computed(() => Boolean(selectedStageToRun.value && selectedGroupToRun.value?.players?.length) && !isConnecting.value)
+
+const goToStep = (step) => {
+  setupError.value = ''
+  setupNotice.value = ''
+  currentStep.value = step
+}
 
 // --- 导入功能相关状态 ---
 const fileInput = ref(null)

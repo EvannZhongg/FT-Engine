@@ -86,6 +86,53 @@
   --shadow-menu: 0 12px 30px rgba(0, 0, 0, 0.34);
 }
 
+/* Older feature surfaces use the workbench names. Keep those names as
+   aliases so every route follows the active application theme. */
+:root[data-theme='light'],
+:root:not([data-theme]) {
+  --workbench-bg: var(--app-bg);
+  --workbench-surface: var(--surface);
+  --workbench-surface-raised: var(--surface-muted);
+  --workbench-surface-hover: var(--surface-hover);
+  --workbench-input: var(--input-bg);
+  --workbench-border: var(--border-strong);
+  --workbench-border-subtle: var(--border-subtle);
+  --workbench-text: var(--text-primary);
+  --workbench-text-secondary: var(--text-secondary);
+  --workbench-muted: var(--text-muted);
+  --workbench-muted-strong: var(--text-secondary);
+  --workbench-accent: var(--accent);
+  --workbench-accent-soft: var(--accent-soft);
+  --workbench-success: var(--success);
+  --workbench-success-soft: color-mix(in srgb, var(--success) 12%, transparent);
+  --workbench-danger: var(--danger);
+  --workbench-danger-soft: var(--danger-soft);
+  --workbench-warning: var(--warning-text);
+  --workbench-warning-soft: var(--warning-soft);
+}
+
+:root[data-theme='dark'] {
+  --workbench-bg: var(--app-bg);
+  --workbench-surface: var(--surface);
+  --workbench-surface-raised: var(--surface-muted);
+  --workbench-surface-hover: var(--surface-hover);
+  --workbench-input: var(--input-bg);
+  --workbench-border: var(--border-strong);
+  --workbench-border-subtle: var(--border-subtle);
+  --workbench-text: var(--text-primary);
+  --workbench-text-secondary: var(--text-secondary);
+  --workbench-muted: var(--text-muted);
+  --workbench-muted-strong: var(--text-secondary);
+  --workbench-accent: var(--accent);
+  --workbench-accent-soft: var(--accent-soft);
+  --workbench-success: var(--success);
+  --workbench-success-soft: color-mix(in srgb, var(--success) 16%, transparent);
+  --workbench-danger: var(--danger);
+  --workbench-danger-soft: var(--danger-soft);
+  --workbench-warning: var(--warning-text);
+  --workbench-warning-soft: var(--warning-soft);
+}
+
 *,
 *::before,
 *::after {

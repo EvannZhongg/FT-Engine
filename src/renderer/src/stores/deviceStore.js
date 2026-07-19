@@ -16,9 +16,14 @@ export const useDeviceStore = defineStore('devices', {
       try {
         if (!window.ftEngine?.devices) throw new Error('LOCAL_DEVICES_UNAVAILABLE')
         const settingsStore = useSettingsStore()
+        // Pinia state is reactive; clone the bounded string map before crossing
+        // the Electron structured-clone boundary.
+        const remarks = Object.fromEntries(
+          Object.entries(settingsStore.appSettings.device_remarks || {})
+        )
         const result = await window.ftEngine.devices.scan({
           flush: Boolean(isRefresh),
-          remarks: settingsStore.appSettings.device_remarks || {}
+          remarks
         })
         if (result.errors?.length && !result.devices?.length) {
           const firstError = result.errors[0]
