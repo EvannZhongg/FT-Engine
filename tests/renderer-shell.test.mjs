@@ -99,7 +99,8 @@ test('shares focus-managed dialogs across confirmation, scoring and report workf
   for (const consumer of [
     'src/renderer/src/components/AppDialog.vue',
     'src/renderer/src/components/ScoreBoard.vue',
-    'src/renderer/src/components/ReportView.vue'
+    'src/renderer/src/components/ReportView.vue',
+    'src/renderer/src/components/SetupWizard.vue'
   ]) {
     assert.equal(source(consumer).includes("import DialogShell from './DialogShell.vue'"), true)
   }
@@ -109,6 +110,10 @@ test('shares focus-managed dialogs across confirmation, scoring and report workf
   )
   assert.equal(
     source('src/renderer/src/components/ReportView.vue').includes('modal-overlay'),
+    false
+  )
+  assert.equal(
+    source('src/renderer/src/components/SetupWizard.vue').includes('class="overlay"'),
     false
   )
 })

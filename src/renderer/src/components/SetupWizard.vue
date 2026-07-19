@@ -194,7 +194,15 @@
       </div>
     </div>
 
-    <div v-if="isConnecting" class="overlay">
+    <DialogShell
+      :open="isConnecting"
+      :aria-label="$t('dialog_conn_title')"
+      width="350px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      :close-on-escape="false"
+    >
       <div class="connect-dialog">
         <h3>{{ $t('dialog_conn_title') }}</h3>
         <div class="status-list">
@@ -217,9 +225,17 @@
           </div>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showImportModal" class="overlay">
+    <DialogShell
+      :open="showImportModal"
+      :aria-label="$t('dialog_import_title')"
+      width="500px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showImportModal = false"
+    >
       <div class="import-dialog">
         <h3>{{ $t('dialog_import_title') }}</h3>
         <p class="sub-text">{{ $t('dialog_import_subtitle') }}</p>
@@ -243,9 +259,17 @@
           <button class="btn-primary" @click="confirmImport">{{ $t('btn_confirm_import') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showAliasModal" class="overlay">
+    <DialogShell
+      :open="showAliasModal"
+      :aria-label="$t('title_device_remarks')"
+      width="550px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showAliasModal = false"
+    >
       <div class="import-dialog alias-dialog">
         <h3>{{ $t('title_device_remarks') }}</h3>
         <p class="sub-text">{{ $t('msg_device_remarks') }}</p>
@@ -273,9 +297,18 @@
           <button class="btn-primary" @click="saveAliases">{{ $t('btn_save') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showRenameModal" class="overlay">
+    <DialogShell
+      :open="showRenameModal"
+      :aria-label="$t('title_device_rename_confirm')"
+      width="620px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      :close-on-escape="!isApplyingRename"
+      @close="dismissRenameModal"
+    >
       <div class="import-dialog alias-dialog rename-dialog">
         <h3>{{ $t('title_device_rename_confirm') }}</h3>
         <p class="sub-text">{{ $t('msg_device_rename_confirm') }}</p>
@@ -313,7 +346,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
   </div>
 </template>
@@ -328,6 +361,7 @@ import { Check, ChevronDown, ChevronUp, Plus, RotateCcw, Tag, Trash2, Upload } f
 import { read, utils } from 'xlsx'
 import { useI18n } from 'vue-i18n'
 import { clampAttempt, createGroupDraft, toStageDraft, toStageInput } from '../features/competitions/stageDrafts.mjs'
+import DialogShell from './DialogShell.vue'
 
 const { t } = useI18n()
 const emit = defineEmits(['cancel', 'finished'])
@@ -812,7 +846,6 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await match
 .device-list-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
 .ref-card { background: #252526; border: 1px solid #3d3d3d; border-radius: 6px; .card-header { background: #333; padding: 8px 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; .ref-name-input { background: #333; border: 1px solid #555; color: white; padding: 4px 8px; border-radius: 4px; margin-left: 8px; width: 140px; font-size: 0.9rem; &:focus { border-color: #3498db; outline: none; } } } .card-body { padding: 10px; } .row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; label { width: 70px; font-size: 0.85rem; color: #888; margin: 0; } select { width: 180px; padding: 4px; font-size: 0.9rem; } } }
 .actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--workbench-border-subtle); button { padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; &.btn-primary { background: var(--workbench-accent); color: white; &:hover { filter: brightness(1.12); } } &.btn-secondary { background: var(--workbench-surface-raised); color: var(--workbench-text); &:hover { background: var(--workbench-surface-hover); } } &.btn-success { background: #2ecc71; color: white; &:hover { background: #27ae60; } } &.btn-scan { background: #f39c12; color: white; &:hover { background: #d35400; } } &:disabled { opacity: 0.5; cursor: not-allowed; } } }
-.overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
 .connect-dialog { background: #252526; padding: 20px; width: 350px; border-radius: 8px; text-align: center; }
 .status-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; .tag { font-size: 0.8rem; padding: 2px 6px; border-radius: 3px; margin-left: 5px; &.connected { background: #27ae60; } &.connecting { background: #f39c12; } &.error { background: #c0392b; } &.waiting { background: #555; } } }
 .dialog-actions { margin-top: 15px; button { margin: 0 5px; } }
