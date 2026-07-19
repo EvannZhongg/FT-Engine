@@ -1,44 +1,35 @@
 <template>
-  <Teleport to="body">
-    <div v-if="open" class="dialog-backdrop" @mousedown.self="emit('cancel')">
-      <section
-        ref="dialogRef"
-        class="app-dialog"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="titleId"
-        @keydown="handleKeydown"
-      >
-        <h2 :id="titleId">{{ title }}</h2>
-        <p>{{ message }}</p>
-        <div class="dialog-actions">
-          <button
-            ref="cancelRef"
-            type="button"
-            class="button-secondary"
-            :disabled="busy"
-            @click="emit('cancel')"
-          >
-            {{ cancelText }}
-          </button>
-          <button
-            type="button"
-            :class="danger ? 'button-danger' : 'button-primary'"
-            :disabled="busy"
-            @click="emit('confirm')"
-          >
-            {{ confirmText }}
-          </button>
-        </div>
-      </section>
-    </div>
-  </Teleport>
+  <DialogShell
+    :open="open"
+    :aria-label="title"
+    :close-on-backdrop="!busy"
+    :close-on-escape="!busy"
+    @close="emit('cancel')"
+  >
+    <section class="app-dialog">
+      <h2>{{ title }}</h2>
+      <p>{{ message }}</p>
+      <div class="dialog-actions">
+        <button type="button" class="button-secondary" :disabled="busy" @click="emit('cancel')">
+          {{ cancelText }}
+        </button>
+        <button
+          type="button"
+          :class="danger ? 'button-danger' : 'button-primary'"
+          :disabled="busy"
+          @click="emit('confirm')"
+        >
+          {{ confirmText }}
+        </button>
+      </div>
+    </section>
+  </DialogShell>
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import DialogShell from './DialogShell.vue'
 
-const props = defineProps({
+defineProps({
   open: Boolean,
   title: { type: String, required: true },
   message: { type: String, required: true },
@@ -48,55 +39,11 @@ const props = defineProps({
   busy: Boolean
 })
 const emit = defineEmits(['confirm', 'cancel'])
-const dialogRef = ref(null)
-const cancelRef = ref(null)
-const titleId = `dialog-title-${Math.random().toString(36).slice(2)}`
-
-watch(
-  () => props.open,
-  async (open) => {
-    if (!open) return
-    await nextTick()
-    cancelRef.value?.focus()
-  }
-)
-
-const handleKeydown = (event) => {
-  if (event.key === 'Escape' && !props.busy) emit('cancel')
-  if (event.key !== 'Tab') return
-  const focusable = [...dialogRef.value.querySelectorAll('button:not(:disabled)')]
-  if (!focusable.length) return
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
 </script>
 
 <style scoped>
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 5000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(15, 18, 16, 0.48);
-}
 .app-dialog {
-  width: min(430px, 100%);
-  padding: 22px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-primary);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.24);
+  display: contents;
 }
 .app-dialog h2 {
   margin: 0;

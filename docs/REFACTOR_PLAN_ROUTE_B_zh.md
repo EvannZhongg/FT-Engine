@@ -41,10 +41,11 @@ Main 组合根、赛事领域、MatchSession 协作者和 Platform Worker 手动
 5. Overlay 继续直接渲染独立透明根节点，不进入 Router、侧栏、主题背景或主窗口壳层。
 6. 现场播放器旁、复盘播放器旁和 OBS Overlay 的 TOTAL/SPLIT/COMBINED 模式共用 `RefereeScoreDisplay` 与纯 `scoreDisplay` 模型；罚分、缩放边界和颜色语义只有一处实现。
 7. 赛事向导、现场计分、复盘和报表的页面背景、表面、输入、边框、主次文字与品牌强调已切换到共享 Workbench Token；局部成功/警告/危险色仍按业务语义保留。
+8. `DialogShell` 统一 Teleport、ARIA、焦点循环/恢复、Esc 和遮罩关闭策略；应用确认框、现场计分的六类决策弹窗以及报表导出/高级设置已接入。
 
 剩余：
 
-1. 继续清理赛事向导、现场计分和报表内部少量控件级硬编码颜色，并把各自的重复模态框壳层切到共享 Dialog primitive。
+1. 继续清理赛事向导、现场计分和报表内部少量控件级硬编码状态色，并将赛事向导的导入、设备备注/重命名和连接弹窗接入 `DialogShell`。
 2. 继续收敛 OBS Overlay 独有的 REALTIME 连击模式、裁判标题和连接状态容器；拖拽/缩放布局编辑仍只属于 Overlay。
 3. 补充可自动执行的 Renderer 交互测试，并完成 1366x768、1920x1080、2560x1440、双显示器缩放与真实窗口控制验收。
 

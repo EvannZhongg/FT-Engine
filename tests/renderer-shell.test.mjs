@@ -82,3 +82,33 @@ test('routes operational workspace structure through shared semantic tokens', ()
     assert.equal(pageSource.includes('background: #1e1e1e'), false, page)
   }
 })
+
+test('shares focus-managed dialogs across confirmation, scoring and report workflows', () => {
+  const shell = source('src/renderer/src/components/DialogShell.vue')
+  for (const behavior of [
+    '<Teleport to="body">',
+    'aria-modal="true"',
+    "event.key === 'Escape'",
+    "event.key !== 'Tab'",
+    'previouslyFocused',
+    'closeOnBackdrop'
+  ]) {
+    assert.equal(shell.includes(behavior), true, behavior)
+  }
+
+  for (const consumer of [
+    'src/renderer/src/components/AppDialog.vue',
+    'src/renderer/src/components/ScoreBoard.vue',
+    'src/renderer/src/components/ReportView.vue'
+  ]) {
+    assert.equal(source(consumer).includes("import DialogShell from './DialogShell.vue'"), true)
+  }
+  assert.equal(
+    source('src/renderer/src/components/ScoreBoard.vue').includes('modal-overlay'),
+    false
+  )
+  assert.equal(
+    source('src/renderer/src/components/ReportView.vue').includes('modal-overlay'),
+    false
+  )
+})

@@ -107,7 +107,14 @@
       </div>
     </div>
 
-    <div v-if="showExportModal" class="modal-overlay" @click.self="showExportModal = false">
+    <DialogShell
+      :open="showExportModal"
+      :aria-label="$t('rpt_title_export')"
+      width="550px"
+      padding="0"
+      variant="workbench"
+      @close="showExportModal = false"
+    >
          <div class="modal-content export-modal">
             <h3>{{ $t('rpt_title_export') }}</h3>
              <div class="modal-body-layout">
@@ -158,9 +165,16 @@
                 </button>
              </div>
          </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showAdvancedModal" class="modal-overlay" @click.self="showAdvancedModal = false; showPenaltyHint = false">
+    <DialogShell
+      :open="showAdvancedModal"
+      :aria-label="$t('rpt_title_adv')"
+      width="400px"
+      padding="0"
+      variant="workbench"
+      @close="closeAdvancedModal"
+    >
       <div class="modal-content advanced-modal">
         <h3>{{ $t('rpt_title_adv') }}</h3> <div class="adv-row">
           <label>{{ $t('rpt_lbl_ratio') }} (%)</label>
@@ -188,10 +202,10 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn-confirm" @click="showAdvancedModal = false; showPenaltyHint = false">{{ $t('btn_confirm') }}</button>
+          <button class="btn-confirm" @click="closeAdvancedModal">{{ $t('btn_confirm') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
   </div>
 </template>
@@ -202,6 +216,7 @@ import { useReplayStore } from '../stores/replayStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useI18n } from 'vue-i18n'
 import { Info } from 'lucide-vue-next'
+import DialogShell from './DialogShell.vue'
 
 const props = defineProps(['projectDir'])
 defineEmits(['back'])
@@ -258,6 +273,11 @@ watch(
 
 const togglePenaltyHint = () => {
   showPenaltyHint.value = !showPenaltyHint.value
+}
+
+const closeAdvancedModal = () => {
+  showAdvancedModal.value = false
+  showPenaltyHint.value = false
 }
 
 // --- 获取裁判名称 ---
@@ -605,7 +625,6 @@ th { background: var(--workbench-surface-raised); position: sticky; top: 0; z-in
 .dim { color: #444; }
 .score-cell { display: flex; flex-direction: column; align-items: center; .main-score { font-size: 1.1rem; font-weight: bold; color: white; } .sub-score { font-size: 0.8rem; color: #aaa; margin-top: 2px; } .plus { color: #aaa; } .minus { color: #e74c3c; } }
 
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
 .modal-content { background: var(--workbench-surface-raised); padding: 25px; border-radius: 8px; color: var(--workbench-text); display: flex; flex-direction: column; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
 
 /* 高级设置模态框样式 */

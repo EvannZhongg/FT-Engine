@@ -162,7 +162,15 @@
       </div>
     </div>
 
-    <div v-if="showWindowSelector" class="modal-overlay">
+    <DialogShell
+      :open="showWindowSelector"
+      :aria-label="$t('media_choose_presentation')"
+      width="520px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showWindowSelector = false"
+    >
       <div class="modal-content presentation-dialog">
         <h3>{{ $t('media_choose_presentation') }}</h3>
         <div class="presentation-modes">
@@ -208,9 +216,17 @@
           </button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showResetDialog" class="modal-overlay">
+    <DialogShell
+      :open="showResetDialog"
+      :aria-label="$t('sb_title_confirm_next')"
+      width="380px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showResetDialog = false"
+    >
       <div class="modal-content">
         <h3>{{ $t('sb_title_confirm_next') }}</h3>
         <p>{{ $t('sb_msg_confirm_next') }}</p>
@@ -220,9 +236,17 @@
           <button class="btn-confirm" @click="confirmSmartNext">{{ $t('sb_btn_confirm') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showExitDialog" class="modal-overlay">
+    <DialogShell
+      :open="showExitDialog"
+      :aria-label="$t('sb_title_end_match')"
+      width="380px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showExitDialog = false"
+    >
       <div class="modal-content">
         <h3>{{ $t('sb_title_end_match') }}</h3>
         <p>{{ $t('sb_msg_end_match') }}</p>
@@ -234,9 +258,17 @@
           <button class="btn-cancel large" @click="showExitDialog = false">{{ $t('btn_cancel') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showInvalidateDialog" class="modal-overlay">
+    <DialogShell
+      :open="showInvalidateDialog"
+      :aria-label="$t('sb_title_invalidate')"
+      width="380px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showInvalidateDialog = false"
+    >
       <div class="modal-content">
         <h3>{{ $t('sb_title_invalidate') }}</h3>
         <p>{{ $t('sb_msg_invalidate') }}</p>
@@ -250,9 +282,17 @@
           <button class="btn-confirm warning" @click="confirmInvalidateMatch">{{ $t('sb_btn_confirm_invalidate') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showZeroDialog" class="modal-overlay">
+    <DialogShell
+      :open="showZeroDialog"
+      :aria-label="$t('sb_btn_zero')"
+      width="380px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showZeroDialog = false"
+    >
       <div class="modal-content">
         <h3>{{ $t('sb_btn_zero') }}</h3>
         <p>{{ $t('sb_msg_reset_zero') }}</p>
@@ -265,9 +305,17 @@
           <button class="btn-confirm warning" @click="confirmZeroReset">{{ $t('sb_btn_confirm') }}</button>
         </div>
       </div>
-    </div>
+    </DialogShell>
 
-    <div v-if="showAllDoneDialog" class="modal-overlay">
+    <DialogShell
+      :open="showAllDoneDialog"
+      :aria-label="$t('sb_title_all_scored')"
+      width="380px"
+      padding="0"
+      variant="workbench"
+      :close-on-backdrop="false"
+      @close="showAllDoneDialog = false"
+    >
       <div class="modal-content">
         <h3>{{ $t('sb_title_all_scored') }}</h3>
         <p>{{ $t('sb_msg_all_scored') }}</p>
@@ -279,7 +327,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </DialogShell>
   </div>
 </template>
 
@@ -293,6 +341,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Ban, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
+import DialogShell from './DialogShell.vue'
 import { normalizeYouTubeUrl } from '../media/youtube'
 
 const emit = defineEmits(['stop', 'invalidate'])
@@ -704,7 +753,6 @@ const confirmOverlay = async () => {
 .workspace-player { min-width: 0; }
 .bind-video-command { width: 100%; min-height: 36px; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--workbench-accent); border-radius: 5px; background: var(--workbench-accent-soft); color: var(--workbench-text); cursor: pointer; }
 .score-card { background: #ecf0f1; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); color: #2c3e50; .card-top { width: 100%; display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; font-weight: bold; } .status-indicators { display: flex; gap: 4px; } .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bdc3c7; &.connected { background: #2ecc71; } } .score-main { font-size: 4rem; font-weight: 800; line-height: 1; margin: 10px 0; } .score-detail { font-size: 1rem; color: #666; background: #ddd; padding: 2px 10px; border-radius: 10px; } }
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
 .modal-content { background: var(--workbench-surface-raised); padding: 25px; border-radius: 8px; width: min(380px, calc(100vw - 48px)); box-sizing: border-box; text-align: center; color: var(--workbench-text); h3 { margin-top: 0; } }
 .presentation-dialog { width: min(520px, calc(100vw - 48px)); box-sizing: border-box; }
 .presentation-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
