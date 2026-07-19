@@ -70,16 +70,17 @@ Renderer projects.create/update
 - `src/main/index.js` 4 行，只调用 `bootstrapDesktopApp`；`src/main/app/bootstrap.mts` 约 283 行，只保留依赖装配、资源启动和注册。
 - `src/main/match/match-session.mts` 约 696 行，保留状态机、上下文转换和计分事件持久化时序；设备、媒体与通知均已拆出。
 - `src/main/persistence/local-database.mts` 约 183 行，只保留连接生命周期和 repository/query 委托。
-- `src/renderer/src/stores/refereeStore.js` 约 673 行，混合设置、项目、Stage、设备、比赛、Overlay、复盘和导出。
+- Renderer 状态已拆到 `competitionStore.js`、`matchStore.js`、`deviceStore.js`、`settingsStore.js` 和 `replayStore.js`；旧 `refereeStore.js` 已删除。
 
-下一阶段需要进入桌面壳层和 Renderer Store 分域，而不是向现有集中点追加职责。
+Renderer 已进入 Vue Router 桌面壳层和分域 Store；下一阶段不应重新引入聚合 Store，而应继续收敛各页面的共享 Token、对话框和紧凑计分展示模型。
 
-## 6. UI 当前差距
+## 6. UI 当前状态与差距
 
-- 主窗口已按显示器工作区计算约 72.5% x 77.5% 的居中普通窗口，并优先保持约 16:10 和至少 24px 工作区边距。
-- 顶部导航、深色 Hero、大入口卡片、径向渐变和历史模态框仍与目标桌面工作台不符。
-- 没有固定左侧导航和左下用户摘要；主工作区尚未采用受限宽度布局。
-- 设置使用全宽下拉，大量流程仍依赖原生 `alert`/`confirm`。
+- 主窗口按显示器工作区计算约 72.5% x 77.5% 的居中普通窗口，并优先保持约 16:10 和至少 24px 工作区边距。
+- 主窗口已有固定左侧导航、左下本地用户摘要、顶部赛事/保存/设备上下文和受限工作区；工作台不再使用 Hero、大入口卡片、径向渐变或历史模态框。
+- Vue Router 提供工作台、赛事、配置、现场计分、复盘、报表和设置路由；设置页使用主题分段控制、OBS 开关、快捷键输入和应用内删除确认。
+- 默认浅色壳层和中性深色主题已使用语义 Token；赛事向导、现场计分、报表和复盘仍保留一部分组件内深色样式，需要继续 Token 化。
+- 原生 `alert`/`confirm` 已从 Renderer 生产源码删除；持续错误使用状态条/行内错误，删除使用支持焦点循环和 Esc 的应用内 Dialog。
 
 窗口、侧栏、主题和比赛/视频交互以 [桌面 UI 与交互目标](./UI_INTERACTION_SPEC_zh.md) 为准。
 
@@ -87,12 +88,13 @@ Renderer projects.create/update
 
 2026-07-19 当前工作树检查：
 
-- `npm test`：112/112 通过。
+- `npm test`：114/114 通过。
 - `npm run typecheck`：通过，覆盖全部 Main `.mts` 模块。
 - `npm run lint`：0 error；历史换行和格式 warning 尚未批量清理。
 - `python -m unittest discover -s tests`：17/17 通过，仅包含 Platform Worker。
-- `npm run build`、`npm run build:worker:win`、`npm run build:unpack`：通过。
+- `npm run build`：通过；本阶段未重复执行 Worker 与安装包构建。
 - 解包版进程级检查：SQLite 和 Worker 握手成功，进程树无 TCP 监听；资源目录只有 `local-platform-worker.exe`，没有 backend、server 或端口配置。
-- Node 测试覆盖 Competition/Stage/attempt、会话转换回滚与审计、计分、干净 Schema 重建、上下文拒绝、导出格式和文件错误映射。
+- Node 测试覆盖 Competition/Stage/attempt、会话转换回滚与审计、计分、干净 Schema 重建、上下文拒绝、导出格式、文件错误映射、Router 壳层和 Renderer Store 分域边界。
+- 1366x768 的工作台/赛事/向导/复盘、1920x1080 的设置页以及系统 DPI 下的实际 Electron 主窗口已完成截图检查；应用内 Browser 不可用时使用本机 Chromium 和 Electron `PrintWindow` 复核。
 
 当前结果不代表真实 BLE/USB、OBS、YouTube 网络、macOS 权限/签名或 Windows 安装器已经完成发布验收。

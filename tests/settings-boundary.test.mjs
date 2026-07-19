@@ -4,7 +4,7 @@ import test from 'node:test'
 
 test('routes Renderer settings through typed IPC', () => {
   const store = readFileSync(
-    new URL('../src/renderer/src/stores/refereeStore.js', import.meta.url),
+    new URL('../src/renderer/src/stores/settingsStore.js', import.meta.url),
     'utf8'
   )
   assert.match(store, /ftEngine\.settings\.get/)

@@ -50,15 +50,16 @@ test('creates independent editable Stage graphs and normalized inputs', () => {
 })
 
 test('routes selected Stage and attempt through the Renderer boundary', () => {
-  const store = source('src/renderer/src/stores/refereeStore.js')
+  const competitionStore = source('src/renderer/src/stores/competitionStore.js')
+  const matchStore = source('src/renderer/src/stores/matchStore.js')
   const wizard = source('src/renderer/src/components/SetupWizard.vue')
   const scoreboard = source('src/renderer/src/components/ScoreBoard.vue')
 
-  assert.equal(store.includes('stageId: this.activeStageId'), true)
-  assert.equal(store.includes('attemptNumber: this.activeAttemptNumber'), true)
-  assert.equal(store.includes('window.ftEngine.stages.reorder'), true)
+  assert.equal(matchStore.includes('stageId: competitionStore.activeStageId'), true)
+  assert.equal(matchStore.includes('attemptNumber: competitionStore.activeAttemptNumber'), true)
+  assert.equal(competitionStore.includes('window.ftEngine.stages.reorder'), true)
   assert.equal(wizard.includes('selectedStageIdToRun'), true)
   assert.equal(wizard.includes('selectedAttemptToRun'), true)
-  assert.equal(scoreboard.includes('store.activeStage?.name'), true)
-  assert.equal(scoreboard.includes('store.activeAttemptNumber'), true)
+  assert.equal(scoreboard.includes('competitionStore.activeStage?.name'), true)
+  assert.equal(scoreboard.includes('competitionStore.activeAttemptNumber'), true)
 })

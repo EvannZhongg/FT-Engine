@@ -40,6 +40,8 @@
         </div>
       </div>
 
+      <p v-if="exportError" class="report-error" role="status">{{ exportError }}</p>
+
       <div v-if="viewMode === 'SCALED'" class="table-container">
         <table class="striped-table">
           <thead>
@@ -196,13 +198,15 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRefereeStore } from '../stores/refereeStore'
+import { useReplayStore } from '../stores/replayStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useI18n } from 'vue-i18n'
 import { Info } from 'lucide-vue-next'
 
 const props = defineProps(['projectDir'])
 defineEmits(['back'])
-const store = useRefereeStore()
+const replayStore = useReplayStore()
+const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
 const groups = ref([])
@@ -224,11 +228,12 @@ const exportOpts = ref({
   srt: true,
   srt_mode: 'REALTIME'
 })
+const exportError = ref('')
 
 onMounted(async () => {
-  await store.fetchSettings()
+  await settingsStore.fetchSettings()
   if (props.projectDir) {
-    const data = await store.fetchReportData(props.projectDir)
+    const data = await replayStore.fetchReportData(props.projectDir)
     if (data) {
       groups.value = data.config.groups || []
       scoresData.value = data.scores || {}
@@ -236,10 +241,10 @@ onMounted(async () => {
     }
   }
 
-  const savedPenaltyPref = store.getProjectPreference(props.projectDir, 'show_penalty', undefined)
+  const savedPenaltyPref = settingsStore.getProjectPreference(props.projectDir, 'show_penalty', undefined)
   enablePenalty.value = savedPenaltyPref ?? true
   if (props.projectDir && savedPenaltyPref === undefined) {
-    await store.updateProjectPreference(props.projectDir, 'show_penalty', true)
+    await settingsStore.updateProjectPreference(props.projectDir, 'show_penalty', true)
   }
 })
 
@@ -247,7 +252,7 @@ watch(
   () => enablePenalty.value,
   async (value) => {
     if (!props.projectDir) return
-    await store.updateProjectPreference(props.projectDir, 'show_penalty', !!value)
+    await settingsStore.updateProjectPreference(props.projectDir, 'show_penalty', !!value)
   }
 )
 
@@ -424,8 +429,9 @@ const toggleSelectAll = (e) => {
 
 const confirmBatchExport = async () => {
   if (selectedPlayers.value.length === 0) return
+  exportError.value = ''
 
-  const result = await store.exportScoreDetails(
+  const result = await replayStore.exportScoreDetails(
     props.projectDir,
     currentGroup.value.name,
     selectedPlayers.value,
@@ -435,24 +441,27 @@ const confirmBatchExport = async () => {
   if (result.status === 'saved') {
     showExportModal.value = false
   } else if (result.status === 'error') {
-    alert(t('rpt_msg_fail'))
+    showExportModal.value = false
+    exportError.value = t('rpt_msg_fail')
   }
 }
 
 // --- CSV 导出逻辑 ---
 const exportCSV = async () => {
   if (!currentGroup.value) return
-  const result = await store.exportReport(props.projectDir, currentGroup.value.name, {
+  exportError.value = ''
+  const result = await replayStore.exportReport(props.projectDir, currentGroup.value.name, {
     view: viewMode.value,
     scaleRatio: scaleRatio.value,
     includePenalty: enablePenalty.value
   })
-  if (result.status === 'error') alert(t('rpt_msg_fail'))
+  if (result.status === 'error') exportError.value = t('rpt_msg_fail')
 }
 </script>
 
 <style scoped lang="scss">
 .report-view { display: flex; height: 100%; color: white; background: #1e1e1e; }
+.report-error { margin: 10px 20px 0; padding: 9px 11px; border-left: 3px solid #d36b6b; background: #392425; color: #ffc3c3; font-size: 0.82rem; }
 
 .sidebar {
   width: 250px;

@@ -19,7 +19,7 @@ import {
   Legend
 } from 'chart.js'
 import { Line } from 'vue-chartjs'
-import { useRefereeStore } from '../stores/refereeStore'
+import { useMatchStore } from '../stores/matchStore'
 
 ChartJS.register(
   CategoryScale,
@@ -31,7 +31,7 @@ ChartJS.register(
   Legend
 )
 
-const store = useRefereeStore()
+const store = useMatchStore()
 const chartRef = ref(null)
 const isRecording = ref(false)
 const startTime = ref(null)

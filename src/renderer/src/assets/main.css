@@ -1,34 +1,110 @@
 @import './base.css';
 
-/* === 全局背景与布局优化 === */
-body {
-  /* 【关键修改】移除 flex 居中，回归标准文档流，解决偏右和贴边问题 */
-  margin: 0;
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden; /* 禁止此时出现滚动条，由内部容器滚动 */
-  user-select: none;
-
-  /* 深色科技感背景 */
-  background-color: #0a0a0a;
-  background-image:
-    radial-gradient(circle at 15% 50%, rgba(120, 119, 198, 0.15), transparent 40%),
-    radial-gradient(circle at 85% 30%, rgba(67, 56, 202, 0.15), transparent 40%);
-
-  color: #fff;
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --app-bg: #f4f5f3;
+  --workspace-bg: #fafaf8;
+  --sidebar-bg: #f0f2ef;
+  --surface: #ffffff;
+  --surface-muted: #ecefeb;
+  --surface-hover: #eef1ed;
+  --input-bg: #ffffff;
+  --border: #e2e4e0;
+  --border-subtle: #eceeea;
+  --border-strong: #cdd1cb;
+  --text-primary: #1d1f1c;
+  --text-secondary: #5f655f;
+  --text-muted: #7d837d;
+  --accent: #557a6b;
+  --accent-strong: #3f6556;
+  --accent-soft: #e7efeb;
+  --accent-border: #bfd0c8;
+  --success: #397357;
+  --warning-soft: #f8f1dc;
+  --warning-border: #ddc985;
+  --warning-text: #6c5a21;
+  --danger: #a33b35;
+  --danger-soft: #f8e9e7;
+  --danger-border: #e2b5b0;
+  --shadow-menu: 0 10px 28px rgba(30, 35, 31, 0.14);
 }
 
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --app-bg: #181a18;
+  --workspace-bg: #1d1f1d;
+  --sidebar-bg: #151715;
+  --surface: #232623;
+  --surface-muted: #2c302c;
+  --surface-hover: #2a2e2a;
+  --input-bg: #1b1d1b;
+  --border: #363a36;
+  --border-subtle: #2e322e;
+  --border-strong: #4a504a;
+  --text-primary: #f0f2ef;
+  --text-secondary: #b5bbb5;
+  --text-muted: #8f968f;
+  --accent: #6f9685;
+  --accent-strong: #9fc2b2;
+  --accent-soft: #273a32;
+  --accent-border: #486858;
+  --success: #77b893;
+  --warning-soft: #39331f;
+  --warning-border: #6b5e30;
+  --warning-text: #e1cb82;
+  --danger: #ed8f88;
+  --danger-soft: #402725;
+  --danger-border: #70413d;
+  --shadow-menu: 0 12px 30px rgba(0, 0, 0, 0.34);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body,
 #app {
-  /* 确保根容器占满全屏，让子组件决定布局 */
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  /* 【关键修改】移除 align-items: center 和 justify-content: center */
-  /* 之前这里的居中会导致宽屏内容计算错误 */
+  margin: 0;
 }
-
-/* === 全局滚动条美化 === */
+body {
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+:root[data-window='overlay'] body {
+  background: transparent;
+  color: white;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -37,158 +113,120 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
   border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.35);
+  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
 }
 
-/* === 代码块样式 === */
-code {
-  font-weight: 600;
-  padding: 3px 5px;
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.1);
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    SF Mono,
-    Menlo,
-    Consolas,
-    Liberation Mono,
-    monospace;
-  font-size: 85%;
-  color: #e2e8f0;
-}
-
-/* === 以下保留原模版样式 (为了兼容性) === */
-
-.logo {
-  margin-bottom: 20px;
-  -webkit-user-drag: none;
-  height: 128px;
-  width: 128px;
-  will-change: filter;
-  transition: filter 300ms;
-}
-
-.logo:hover {
-  filter: drop-shadow(0 0 1.2em #6988e6aa);
-}
-
-.creator {
-  font-size: 14px;
-  line-height: 16px;
-  color: rgba(255, 255, 255, 0.6);
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.text {
-  font-size: 28px;
-  color: #fff;
-  font-weight: 700;
-  line-height: 32px;
-  text-align: center;
-  margin: 0 10px;
-  padding: 16px 0;
-}
-
-.tip {
-  font-size: 16px;
-  line-height: 24px;
-  color: rgba(255, 255, 255, 0.7);
-  font-weight: 600;
-}
-
-.vue {
-  background: -webkit-linear-gradient(315deg, #42d392 25%, #647eff);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.actions {
-  display: flex;
-  padding-top: 32px;
-  margin: -6px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.action {
-  flex-shrink: 0;
-  padding: 6px;
-}
-
-.action a {
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  text-align: center;
-  font-weight: 600;
-  white-space: nowrap;
-  border-radius: 20px;
-  padding: 0 20px;
-  line-height: 38px;
-  font-size: 14px;
-  color: #fff;
-  background-color: rgba(255, 255, 255, 0.05);
-  transition: all 0.2s;
-}
-
-.action a:hover {
-  border-color: rgba(255, 255, 255, 0.4);
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.versions {
-  position: absolute;
-  bottom: 30px;
+.page-container {
+  width: min(100%, 1240px);
+  min-height: 100%;
   margin: 0 auto;
-  padding: 15px 0;
-  font-family: 'Menlo', 'Lucida Console', monospace;
-  display: inline-flex;
-  overflow: hidden;
+  padding: 28px clamp(22px, 4vw, 48px) 48px;
+}
+.page-header {
+  min-height: 58px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.page-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.35rem;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+.page-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.page-section {
+  border-top: 1px solid var(--border);
+  background: transparent;
+}
+.section-heading {
+  min-height: 66px;
+  display: flex;
   align-items: center;
-  border-radius: 22px;
-  background-color: rgba(32, 33, 39, 0.8);
-  backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  justify-content: space-between;
+  gap: 16px;
 }
-
-.versions li {
-  display: block;
-  float: left;
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 0 20px;
-  font-size: 14px;
-  line-height: 14px;
-  opacity: 0.8;
-  color: #fff;
+.section-heading h2 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
 }
-.versions li:last-child {
-  border: none;
+.section-heading p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.section-heading a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.button-primary,
+.button-secondary,
+.button-danger,
+.button-danger-outline {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 680;
+}
+.button-primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+}
+.button-primary:hover {
+  background: var(--accent-strong);
+}
+.button-secondary {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.button-danger {
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: white;
+}
+.button-danger-outline {
+  border: 1px solid var(--danger-border);
+  background: transparent;
+  color: var(--danger);
+}
+.button-danger-outline:hover {
+  background: var(--danger-soft);
+}
+.route-loading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
 }
 
 @media (max-width: 720px) {
-  .text {
-    font-size: 20px;
+  .page-container {
+    padding: 22px 18px 38px;
   }
-}
-
-@media (max-width: 620px) {
-  .versions {
-    display: none;
-  }
-}
-
-@media (max-width: 350px) {
-  .tip,
-  .actions {
-    display: none;
+  .page-header {
+    align-items: center;
   }
 }

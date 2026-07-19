@@ -12,6 +12,7 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 - Electron Main 中的 `MatchSessionService` 已接入 Platform Worker、TypeScript 计分域和 SQLite 原子实时事件写入，并向计分页持续发布保存、Worker 和媒体状态。
 - `CompetitionService` 将项目创建、配置、继续、列表和删除完整保留在 Main/SQLite 内。
 - `ExportService` 从 SQLite 只读快照生成报表 CSV 和明细 ZIP/CSV/SRT，再通过 Electron 系统保存对话框写入文件。
+- Vue Router 桌面壳层提供固定侧栏、工作台、赛事、复盘和设置页面；Renderer 状态按 Competition、Match、Device、Settings 和 Replay/Export 分域。
 - FastAPI、Axios fallback、旧项目 importer、shadow event 和 backend-engine 已删除。旧数据库只备份后重建，不导入旧项目或 CSV。
 
 实际调用链见 [当前架构](docs/ARCHITECTURE_CURRENT_zh.md)，下一步见 [路线 B 剩余重构计划](docs/REFACTOR_PLAN_ROUTE_B_zh.md)。

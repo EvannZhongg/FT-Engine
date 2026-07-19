@@ -12,6 +12,7 @@ Route B is being introduced incrementally. The application now has one local run
 - Electron Main's `MatchSessionService` connects the Platform Worker, TypeScript scoring domain, and atomic live SQLite event writes while publishing continuous save/worker/media status to the scoring UI.
 - `CompetitionService` keeps project creation, configuration, resume, list, and deletion entirely in Main/SQLite.
 - `ExportService` builds report CSV and detail ZIP/CSV/SRT from a read-only SQLite snapshot, then writes through Electron's native save dialog.
+- The Vue Router desktop shell provides fixed navigation plus dashboard, competition, replay, and settings pages; Renderer state is split into Competition, Match, Device, Settings, and Replay/Export domains.
 - FastAPI, Axios fallbacks, the old-project importer, shadow events, and backend-engine have been removed. Retired databases are backed up and rebuilt without importing old projects or CSV files.
 
 See [current architecture](docs/ARCHITECTURE_CURRENT_zh.md) and the [remaining Route B plan](docs/REFACTOR_PLAN_ROUTE_B_zh.md).

@@ -168,6 +168,7 @@ export interface DeviceRenameResult extends DeviceRenameRequest {
 
 export interface AppSettings {
   language: 'zh' | 'en' | 'ja'
+  theme: 'light' | 'dark'
   reset_shortcut: string
   suppress_reset_confirm: boolean
   suppress_zero_confirm: boolean

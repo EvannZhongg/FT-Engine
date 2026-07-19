@@ -4,7 +4,7 @@ import test from 'node:test'
 
 test('keeps export bytes and file writes out of the Renderer', () => {
   const store = readFileSync(
-    new URL('../src/renderer/src/stores/refereeStore.js', import.meta.url),
+    new URL('../src/renderer/src/stores/replayStore.js', import.meta.url),
     'utf8'
   )
   const report = readFileSync(

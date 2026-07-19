@@ -13,9 +13,9 @@
         <div class="match-context-label">
           <div class="stage-attempt-label">
             <Layers3 :size="14" />
-            <span>{{ store.activeStage?.name }}</span>
+            <span>{{ competitionStore.activeStage?.name }}</span>
             <span class="context-separator">/</span>
-            <span>{{ $t('attempt_label', { number: store.activeAttemptNumber }) }}</span>
+            <span>{{ $t('attempt_label', { number: competitionStore.activeAttemptNumber }) }}</span>
           </div>
           <div class="group-label">{{ store.currentContext.groupName || $t('wiz_mode_free') }}</div>
         </div>
@@ -62,15 +62,15 @@
           <span class="btn-text">
             {{ isAllDone ? $t('sb_btn_finish') : '⏭ ' + $t('sb_btn_next') }}
           </span>
-          <span class="shortcut-tag" v-if="store.appSettings.reset_shortcut && isAutoNext">
-            {{ store.appSettings.reset_shortcut }}
+          <span class="shortcut-tag" v-if="settingsStore.appSettings.reset_shortcut && isAutoNext">
+            {{ settingsStore.appSettings.reset_shortcut }}
           </span>
         </button>
 
         <button class="btn-tool btn-zero" :disabled="isContextChanging" @click="handleResetOnly" :title="$t('sb_btn_zero')">
           <RotateCcw :size="16" />
-          <span class="shortcut-tag warning" v-if="store.appSettings.reset_shortcut && !isAutoNext">
-            {{ store.appSettings.reset_shortcut }}
+          <span class="shortcut-tag warning" v-if="settingsStore.appSettings.reset_shortcut && !isAutoNext">
+            {{ settingsStore.appSettings.reset_shortcut }}
           </span>
         </button>
       </div>
@@ -242,7 +242,7 @@
         <p>{{ $t('sb_msg_invalidate') }}</p>
         <div class="invalidate-context">
           <strong>{{ store.currentContext.contestantName }}</strong>
-          <span>{{ store.activeStage?.name }} / {{ $t('attempt_label', { number: store.activeAttemptNumber }) }}</span>
+          <span>{{ competitionStore.activeStage?.name }} / {{ $t('attempt_label', { number: competitionStore.activeAttemptNumber }) }}</span>
           <span>{{ store.currentContext.groupName }}</span>
         </div>
         <div class="modal-actions">
@@ -271,11 +271,11 @@
       <div class="modal-content">
         <h3>{{ $t('sb_title_all_scored') }}</h3>
         <p>{{ $t('sb_msg_all_scored') }}</p>
-        <p v-if="store.projectConfig.mode==='TOURNAMENT'" style="font-size:0.9rem;color:#aaa">{{ $t('sb_msg_rejudge') }}</p>
+        <p v-if="competitionStore.projectConfig.mode==='TOURNAMENT'" style="font-size:0.9rem;color:#aaa">{{ $t('sb_msg_rejudge') }}</p>
         <div class="modal-actions vertical-actions">
           <button class="btn-confirm large" @click="finishMatch">{{ $t('sb_btn_save_exit') }}</button>
           <button class="btn-cancel large" @click="continueLoopMatch">
-             {{ store.projectConfig.mode==='FREE' ? $t('sb_btn_cont_add') : $t('sb_btn_cont_start_over') }}
+             {{ competitionStore.projectConfig.mode==='FREE' ? $t('sb_btn_cont_add') : $t('sb_btn_cont_start_over') }}
           </button>
         </div>
       </div>
@@ -285,7 +285,10 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue' // 引入 watch
-import { useRefereeStore } from '../stores/refereeStore'
+import { useCompetitionStore } from '../stores/competitionStore'
+import { useDeviceStore } from '../stores/deviceStore'
+import { useMatchStore } from '../stores/matchStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Ban, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
@@ -293,7 +296,10 @@ import YouTubePlayer from './YouTubePlayer.vue'
 import { normalizeYouTubeUrl } from '../media/youtube'
 
 const emit = defineEmits(['stop', 'invalidate'])
-const store = useRefereeStore()
+const store = useMatchStore()
+const competitionStore = useCompetitionStore()
+const deviceStore = useDeviceStore()
+const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
 // 状态定义
@@ -321,7 +327,7 @@ const retryPlatformWorker = async () => {
   if (isRetryingWorker.value) return
   isRetryingWorker.value = true
   try {
-    await store.retryPlatformWorker()
+    await deviceStore.retryPlatformWorker()
   } catch (error) {
     console.error('Platform Worker retry failed:', error)
   } finally {
@@ -332,7 +338,7 @@ const retryPlatformWorker = async () => {
 const currentBinding = computed(() => {
   const group = store.currentContext.groupName
   const contestant = store.currentContext.contestantName
-  return store.projectConfig.media?.[group]?.[contestant] || null
+  return competitionStore.projectConfig.media?.[group]?.[contestant] || null
 })
 const currentVideoId = computed(() => currentBinding.value?.video_id || '')
 const canConfirmPresentation = computed(() =>
@@ -375,7 +381,7 @@ const saveVideoBinding = async () => {
 
 const currentGroupPlayers = computed(() => {
   const gName = store.currentContext.groupName
-  const group = store.activeGroups.find(g => g.name === gName)
+  const group = competitionStore.activeGroups.find(g => g.name === gName)
   return group ? group.players : []
 })
 
@@ -404,7 +410,7 @@ const registerShortcut = async (shortcut) => {
 }
 
 onMounted(async () => {
-  await store.fetchSettings()
+  await settingsStore.fetchSettings()
 
   if (store.currentContext.groupName) {
     if (!store.currentContext.contestantName && currentGroupPlayers.value.length > 0) {
@@ -415,7 +421,7 @@ onMounted(async () => {
   }
 
   // 1. 初始注册
-  const initialShortcut = store.appSettings.reset_shortcut || "Ctrl+G"
+  const initialShortcut = settingsStore.appSettings.reset_shortcut || "Ctrl+G"
   await registerShortcut(initialShortcut)
 
   // 监听触发
@@ -427,7 +433,7 @@ onMounted(async () => {
 })
 
 // 【新增】监听设置变化，实时更新快捷键
-watch(() => store.appSettings.reset_shortcut, (newVal, oldVal) => {
+watch(() => settingsStore.appSettings.reset_shortcut, (newVal, oldVal) => {
   if (newVal && newVal !== oldVal) {
     void registerShortcut(newVal)
   }
@@ -449,7 +455,7 @@ onUnmounted(() => {
 
 const initResumeState = async () => {
   if (isAllDone.value) {
-    if (store.projectConfig.mode === 'FREE') {
+    if (competitionStore.projectConfig.mode === 'FREE') {
       if (currentIdx.value === -1 && currentGroupPlayers.value.length > 0) {
         store.currentContext.contestantName = currentGroupPlayers.value[currentGroupPlayers.value.length - 1]
       }
@@ -471,12 +477,12 @@ const initResumeState = async () => {
 
 const handleNextClick = () => {
   if (isContextChanging.value) return
-  if (store.appSettings.suppress_reset_confirm || isAutoNext.value) confirmSmartNext()
+  if (settingsStore.appSettings.suppress_reset_confirm || isAutoNext.value) confirmSmartNext()
   else { dontAskAgainTemp.value = false; showResetDialog.value = true }
 }
 
 const confirmSmartNext = async () => {
-  if (dontAskAgainTemp.value) store.updateSetting('suppress_reset_confirm', true)
+  if (dontAskAgainTemp.value) settingsStore.updateSetting('suppress_reset_confirm', true)
   showResetDialog.value = false
   const currentName = store.currentContext.contestantName
   store.broadcastPlayerScored(currentName)
@@ -485,7 +491,7 @@ const confirmSmartNext = async () => {
   if (nextPlayer) {
     await switchContext(nextPlayer)
   } else {
-    if (store.projectConfig.mode === 'FREE') {
+    if (competitionStore.projectConfig.mode === 'FREE') {
        await changePlayer(1)
     } else {
        showAllDoneDialog.value = true
@@ -507,7 +513,7 @@ const findNextUnscoredPlayer = () => {
 
 const continueLoopMatch = async () => {
   showAllDoneDialog.value = false
-  if (store.projectConfig.mode === 'FREE') {
+  if (competitionStore.projectConfig.mode === 'FREE') {
       await changePlayer(1)
   } else {
       const firstPlayer = currentGroupPlayers.value[0]
@@ -536,14 +542,14 @@ const confirmInvalidateMatch = () => {
 
 const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
-  const group = store.activeGroups.find(g => g.name === groupName)
+  const group = competitionStore.activeGroups.find(g => g.name === groupName)
   if (!group || !group.players) return
   const nextIdx = (currentIdx.value === -1 ? 0 : currentIdx.value) + delta
   if (nextIdx >= group.players.length) {
-    if (store.projectConfig.mode === 'FREE') {
+    if (competitionStore.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
-      await store.updateActiveStageGroups(store.activeGroups)
+      await competitionStore.updateActiveStageGroups(competitionStore.activeGroups)
       await switchContext(newPlayerName)
     }
   } else if (nextIdx < 0) {
@@ -567,7 +573,7 @@ const switchContext = async (name) => {
 
 const handleResetOnly = () => {
   if (isContextChanging.value) return
-  if (store.appSettings.suppress_zero_confirm) {
+  if (settingsStore.appSettings.suppress_zero_confirm) {
     confirmZeroReset()
   } else {
     dontAskZeroTemp.value = false
@@ -577,7 +583,7 @@ const handleResetOnly = () => {
 
 const confirmZeroReset = async () => {
   if (dontAskZeroTemp.value) {
-    store.updateSetting('suppress_zero_confirm', true)
+    settingsStore.updateSetting('suppress_zero_confirm', true)
   }
   showZeroDialog.value = false
   await store.resetAll()
@@ -590,7 +596,7 @@ const manualChange = async (delta) => {
 const onSelectPlayer = async (e) => { await switchContext(e.target.value) }
 
 const handleGlobalKeydown = (e) => {
-  const shortcut = store.appSettings.reset_shortcut || "Ctrl+G"
+  const shortcut = settingsStore.appSettings.reset_shortcut || "Ctrl+G"
   const parts = shortcut.toUpperCase().split('+')
   const needCtrl = parts.includes('CTRL')
   const needShift = parts.includes('SHIFT')
@@ -612,7 +618,7 @@ const selectPresentationMode = async (mode) => {
   presentationMode.value = mode
   mediaError.value = ''
   if (mode === 'window' && windowList.value.length === 0) {
-    windowList.value = await store.fetchWindows()
+    windowList.value = await deviceStore.fetchWindows()
   }
 }
 
@@ -638,16 +644,16 @@ const confirmPresentation = async () => {
 const confirmOverlay = async () => {
   if (!selectedTargetWindow.value) return
   let targetBounds = null
-  if (selectedTargetWindow.value !== "FULL_SCREEN") { const res = await store.getWindowBounds(selectedTargetWindow.value); if (res.found) targetBounds = res.bounds }
+  if (selectedTargetWindow.value !== "FULL_SCREEN") { const res = await deviceStore.getWindowBounds(selectedTargetWindow.value); if (res.found) targetBounds = res.bounds }
   showWindowSelector.value = false
   if (window.ftEngine?.overlay) {
     const initialState = {
       referees: JSON.parse(JSON.stringify(store.referees)),
       context: JSON.parse(JSON.stringify(store.currentContext)),
-      projectConfig: JSON.parse(JSON.stringify(store.projectConfig)),
-      stages: JSON.parse(JSON.stringify(store.stages)),
-      activeStageId: store.activeStageId,
-      activeAttemptNumber: store.activeAttemptNumber
+      projectConfig: JSON.parse(JSON.stringify(competitionStore.projectConfig)),
+      stages: JSON.parse(JSON.stringify(competitionStore.stages)),
+      activeStageId: competitionStore.activeStageId,
+      activeAttemptNumber: competitionStore.activeAttemptNumber
     }
     window.ftEngine.overlay.open({ bounds: targetBounds, initialState: initialState })
   }

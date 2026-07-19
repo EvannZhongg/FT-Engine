@@ -11,7 +11,8 @@ test('keeps the desktop runtime independent from a localhost backend', () => {
     'src/renderer/src/App.vue',
     'src/renderer/src/components/OverlayView.vue',
     'src/renderer/src/components/ScoreBoard.vue',
-    'src/renderer/src/stores/refereeStore.js'
+    'src/renderer/src/stores/matchStore.js',
+    'src/renderer/src/stores/deviceStore.js'
   ]
     .map(source)
     .join('\n')

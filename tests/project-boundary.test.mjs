@@ -4,7 +4,7 @@ import test from 'node:test'
 
 test('routes the project lifecycle through typed IPC', () => {
   const store = readFileSync(
-    new URL('../src/renderer/src/stores/refereeStore.js', import.meta.url),
+    new URL('../src/renderer/src/stores/competitionStore.js', import.meta.url),
     'utf8'
   )
   for (const method of ['create', 'update', 'get', 'list', 'delete']) {
@@ -17,7 +17,8 @@ test('uses stable Competition and device field names across the desktop boundary
     'src/shared/contracts/competition.mts',
     'src/shared/ipc-contract.ts',
     'src/preload/index.ts',
-    'src/renderer/src/stores/refereeStore.js'
+    'src/renderer/src/stores/competitionStore.js',
+    'src/renderer/src/stores/matchStore.js'
   ]
     .map((path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'))
     .join('\n')

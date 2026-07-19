@@ -8,6 +8,8 @@
       @change="handleFileImport"
     />
 
+    <p v-if="setupNotice" class="setup-notice" role="status">{{ setupNotice }}</p>
+
     <div class="steps-header">
       <div :class="['step', { active: currentStep >= 1 }]">{{ $t('wiz_step_proj') }}</div>
       <div class="divider"></div>
@@ -318,7 +320,10 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
-import { useRefereeStore } from '../stores/refereeStore'
+import { useCompetitionStore } from '../stores/competitionStore'
+import { useDeviceStore } from '../stores/deviceStore'
+import { useMatchStore } from '../stores/matchStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { Check, ChevronDown, ChevronUp, Plus, RotateCcw, Tag, Trash2, Upload } from 'lucide-vue-next'
 import { read, utils } from 'xlsx'
 import { useI18n } from 'vue-i18n'
@@ -326,7 +331,10 @@ import { clampAttempt, createGroupDraft, toStageDraft, toStageInput } from '../f
 
 const { t } = useI18n()
 const emit = defineEmits(['cancel', 'finished'])
-const store = useRefereeStore()
+const store = useCompetitionStore()
+const deviceStore = useDeviceStore()
+const matchStore = useMatchStore()
+const settingsStore = useSettingsStore()
 const currentStep = ref(1)
 const isScanning = ref(false)
 const isRetryingWorker = ref(false)
@@ -344,6 +352,7 @@ const isConnecting = ref(false)
 const showForceEntry = ref(false)
 const isSavingStages = ref(false)
 const setupError = ref('')
+const setupNotice = ref('')
 let connectTimer = null
 const isResuming = computed(() => !!store.projectConfig.createdAt)
 const currentStageIndex = computed(() => stageDrafts.value.findIndex(stage => stage.id === currentEditStage.value?.id))
@@ -378,7 +387,7 @@ onMounted(async () => {
     currentStep.value = 1
   }
   // 确保配置已加载，以便读取 device_remarks
-  await store.fetchSettings()
+  await settingsStore.fetchSettings()
 })
 
 const loadStageDrafts = async (preferredStageId = '') => {
@@ -400,7 +409,7 @@ const handleFileImport = async (e) => {
     try {
         const data = await file.arrayBuffer(); const workbook = read(data); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName];
         const jsonData = utils.sheet_to_json(worksheet, { header: 1 });
-        if (!jsonData || jsonData.length === 0) { alert(t('msg_file_empty')); return; }
+        if (!jsonData || jsonData.length === 0) { setupError.value = t('msg_file_empty'); return; }
         let maxCols = 0; jsonData.forEach(row => { if (row.length > maxCols) maxCols = row.length });
         const candidates = [];
         for (let c = 0; c < maxCols; c++) {
@@ -411,9 +420,9 @@ const handleFileImport = async (e) => {
                 candidates.push({ index: c, header: `列 ${c + 1}`, preview: preview, data: colData });
             }
         }
-        if (candidates.length === 0) { alert(t('msg_no_valid_data')); return; }
+        if (candidates.length === 0) { setupError.value = t('msg_no_valid_data'); return; }
         importCandidates.value = candidates; selectedColumnIdx.value = 0; showImportModal.value = true;
-    } catch (err) { console.error(err); alert(t('msg_read_fail')); } finally { e.target.value = ''; }
+    } catch (err) { console.error(err); setupError.value = t('msg_read_fail'); } finally { e.target.value = ''; }
 }
 const confirmImport = () => {
   if (!currentEditGroup.value) return
@@ -572,7 +581,7 @@ const startScan = async (isRefresh = true) => {
   isScanning.value = true
   setupError.value = ''
   try {
-    const allDevices = await store.scanDevices(isRefresh)
+    const allDevices = await deviceStore.scanDevices(isRefresh)
     scannedDevices.value = allDevices
     workerRetryAvailable.value = false
     return true
@@ -597,7 +606,7 @@ const retryPlatformWorker = async () => {
   isRetryingWorker.value = true
   setupError.value = ''
   try {
-    await store.retryPlatformWorker()
+    await deviceStore.retryPlatformWorker()
     workerRetryAvailable.value = false
     await startScan(true)
   } catch (error) {
@@ -631,7 +640,7 @@ const getDeviceDisplayName = (device) => {
 // 【新增】打开备注管理弹窗
 const openAliasModal = () => {
   scannedDevices.value.forEach(d => {
-    tempRemarks[d.address] = d.remark || (store.appSettings.device_remarks ? store.appSettings.device_remarks[d.address] : '') || ''
+    tempRemarks[d.address] = d.remark || settingsStore.appSettings.device_remarks?.[d.address] || ''
   })
   showAliasModal.value = true
 }
@@ -661,7 +670,7 @@ const saveAliases = async () => {
   const changedRenameCandidates = scannedDevices.value
     .map(dev => {
       const nextRemark = (tempRemarks[dev.address] || '').trim()
-      const prevRemark = ((store.appSettings.device_remarks && store.appSettings.device_remarks[dev.address]) || '').trim()
+      const prevRemark = (settingsStore.appSettings.device_remarks?.[dev.address] || '').trim()
       if (!nextRemark || nextRemark === prevRemark) return null
       return {
         address: dev.address,
@@ -673,7 +682,7 @@ const saveAliases = async () => {
 
   for (const dev of scannedDevices.value) {
     const val = (tempRemarks[dev.address] || '').trim()
-    await store.saveDeviceRemark(dev.address, val)
+    await settingsStore.saveDeviceRemark(dev.address, val)
 
     // 手动更新当前扫描列表中的显示
     dev.remark = val
@@ -694,7 +703,7 @@ const confirmPermanentRename = async () => {
 
   isApplyingRename.value = true
   try {
-    const results = await store.renameDevices(targets.map(item => ({
+    const results = await deviceStore.renameDevices(targets.map(item => ({
       address: item.address,
       name: item.targetName
     })))
@@ -708,17 +717,17 @@ const confirmPermanentRename = async () => {
     }
 
     if (failed.length === 0) {
-      alert(t('msg_device_rename_success', { count: results.length }))
+      setupNotice.value = t('msg_device_rename_success', { count: results.length })
     } else {
-      alert(t('msg_device_rename_partial', {
+      setupNotice.value = t('msg_device_rename_partial', {
         success: results.length - failed.length,
         failed: failed.length
-      }))
+      })
     }
   } catch (e) {
     console.error("Permanent rename failed", e)
     resetRenameModal()
-    alert(t('msg_device_rename_fail'))
+    setupError.value = t('msg_device_rename_fail')
   } finally {
     isApplyingRename.value = false
   }
@@ -738,16 +747,16 @@ const finishSetup = async () => {
     store.selectStage(selectedStageToRun.value.id, selectedAttemptToRun.value)
     const groupName = selectedGroupToRun.value.name
     const contestantName = selectedGroupToRun.value.players?.[0] || ''
-    await store.setMatchContext(groupName, contestantName)
+    await matchStore.setMatchContext(groupName, contestantName)
     isConnecting.value = true
     showForceEntry.value = false
-    await store.startMatch({ referees: bindings.value })
+    await matchStore.startMatch({ referees: bindings.value })
     const timeout = setTimeout(() => { showForceEntry.value = true }, 8000)
     connectTimer = setInterval(async () => {
       if (checkAllConnected()) {
         clearTimeout(timeout)
         clearInterval(connectTimer)
-        await store.resetAll()
+        await matchStore.resetAll()
         isConnecting.value = false
         emit('finished')
       } else if (checkAnyError()) showForceEntry.value = true
@@ -759,16 +768,16 @@ const finishSetup = async () => {
   }
 }
 
-const getRefStatus = (index, role) => { const r = store.referees[index]; if (!r || !r.status) return 'waiting'; return r.status[role] }
-const checkAllConnected = () => { for (const b of bindings.value) { const status = store.referees[b.index]?.status; if (!status) return false; if (b.primaryDeviceId && status.pri !== 'connected') return false; if (b.mode === 'DUAL' && b.secondaryDeviceId && status.sec !== 'connected') return false } return true }
-const checkAnyError = () => { for (const b of bindings.value) { const status = store.referees[b.index]?.status; if (status && (status.pri === 'error' || status.sec === 'error')) return true } return false }
-const cancelConnect = () => { clearInterval(connectTimer); isConnecting.value = false; store.stopMatch() }
-const confirmForceEnter = async () => { clearInterval(connectTimer); await store.resetAll(); isConnecting.value = false; emit('finished') }
+const getRefStatus = (index, role) => { const r = matchStore.referees[index]; if (!r || !r.status) return 'waiting'; return r.status[role] }
+const checkAllConnected = () => { for (const b of bindings.value) { const status = matchStore.referees[b.index]?.status; if (!status) return false; if (b.primaryDeviceId && status.pri !== 'connected') return false; if (b.mode === 'DUAL' && b.secondaryDeviceId && status.sec !== 'connected') return false } return true }
+const checkAnyError = () => { for (const b of bindings.value) { const status = matchStore.referees[b.index]?.status; if (status && (status.pri === 'error' || status.sec === 'error')) return true } return false }
+const cancelConnect = () => { clearInterval(connectTimer); isConnecting.value = false; matchStore.stopMatch() }
+const confirmForceEnter = async () => { clearInterval(connectTimer); await matchStore.resetAll(); isConnecting.value = false; emit('finished') }
 </script>
 
 <style scoped lang="scss">
 /* 基本样式 */
-.setup-wizard { height: 100%; box-sizing: border-box; padding: 30px; color: white; max-width: 1120px; margin: 0 auto; overflow-y: auto; }
+.setup-wizard { height: 100%; box-sizing: border-box; padding: 30px; color: white; background: #1e1e1e; max-width: 1120px; margin: 0 auto; overflow-y: auto; }
 .steps-header { display: flex; align-items: center; margin-bottom: 30px; .step { font-size: 1.1rem; color: #666; font-weight: bold; &.active { color: #3498db; } } .divider { flex: 1; height: 1px; background: #333; margin: 0 15px; } }
 .step-content { animation: fadeIn 0.3s; h2 { margin-bottom: 20px; color: #eee; } }
 .form-group { min-width: 0; margin-bottom: 20px; label { display: block; margin-bottom: 8px; color: #ccc; } input, textarea, select { width: 100%; box-sizing: border-box; padding: 10px; background: #252526; border: 1px solid #3d3d3d; color: white; border-radius: 4px; outline: none; &:focus { border-color: #3498db; } &:disabled { color: #888; background: #202020; } } textarea { resize: vertical; min-height: 100px; } .hint { color: #888; font-size: 0.8rem; margin-top: 4px; display: block; } }
@@ -792,6 +801,7 @@ const confirmForceEnter = async () => { clearInterval(connectTimer); await store
 .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; label { margin-bottom: 0; } }
 .btn-import-mini { background: #252526; border: 1px solid #3498db; color: #3498db; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s; &:hover:not(:disabled) { background: #3498db; color: white; } &:disabled { opacity: 0.45; cursor: default; } }
 .setup-error { margin: 14px 0 0; padding: 9px 11px; border-left: 3px solid #d36b6b; background: #392425; color: #ffc3c3; font-size: 0.86rem; }
+.setup-notice { margin: 0 0 14px; padding: 9px 11px; border-left: 3px solid #62a882; background: #21382d; color: #c7f0d8; font-size: 0.82rem; }
 .scan-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 14px 20px; margin-bottom: 20px; h2 { width: 100%; margin: 0; } }
 .run-context-selectors { min-width: 0; flex: 1; display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: #aaa; font-size: 0.78rem; } select { width: 100%; min-width: 0; box-sizing: border-box; height: 34px; padding: 0 8px; } }
 .scan-controls { display: flex; align-items: center; gap: 10px; .status { margin-right: 10px; color: #aaa; font-size: 0.9rem; &.scanning { color: #f39c12; animation: blink 1s infinite; } } }

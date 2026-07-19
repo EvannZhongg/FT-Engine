@@ -32,11 +32,19 @@ Main 组合根、赛事领域、MatchSession 协作者和 Platform Worker 手动
 
 ## 3. P1：桌面壳层与 Renderer 分域
 
-1. 非最大化居中窗口已实现；继续实现固定侧栏、受限工作区和 light/dark Token。
-2. 引入 Vue Router 和分域 Store，移除手写 `currentView` 与单一 `refereeStore`。
-3. 将历史赛事改为页面，设置改为独立页面，用应用内 Dialog/状态条替代原生弹窗。
-4. 保持现场播放器旁、视频悬浮模式和复盘中的悬浮计分组件一致。
-5. Overlay 保持独立透明壳层，不继承主窗口背景和侧栏。
+已完成：
+
+1. 主窗口采用固定侧栏、顶部上下文栏和 `max-width: 1240px` 受限工作区；浅色/中性深色语义 Token 已接入并持久化主题设置。
+2. Vue Router 已承接工作台、赛事、配置、现场计分、复盘、报表和设置；手写 `currentView` 已删除，报表与复盘上下文通过 route params/query 恢复。
+3. 单一 `refereeStore` 已删除，状态拆到 Competition、Match、Device、Settings 和 Replay/Export Store；复杂页面只组合所需分域。
+4. 历史赛事已从模态框改为工作台/赛事页面表格，设置已成为独立页面；更新完成、删除确认、导入和导出反馈不再使用原生 `alert`/`confirm`。
+5. Overlay 继续直接渲染独立透明根节点，不进入 Router、侧栏、主题背景或主窗口壳层。
+
+剩余：
+
+1. 将仍使用中性深色局部样式的赛事向导、现场计分、报表和复盘逐步切换为共享语义 Token，减少组件内硬编码颜色。
+2. 统一 OBS Overlay、现场播放器旁和复盘播放器旁的紧凑计分展示模型，在保留 Overlay 布局编辑能力的同时复用同一只读计分组件。
+3. 补充可自动执行的 Renderer 交互测试，并完成 1366x768、1920x1080、2560x1440、双显示器缩放与真实窗口控制验收。
 
 详细规范见 [桌面 UI 与交互目标](./UI_INTERACTION_SPEC_zh.md)。
 

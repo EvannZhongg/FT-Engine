@@ -10,7 +10,7 @@ test('routes manual Platform Worker recovery from both Renderer workflows', () =
   const contract = source('src/shared/ipc-contract.ts')
   const preload = source('src/preload/index.ts')
   const registration = source('src/main/ipc/register-platform.mts')
-  const store = source('src/renderer/src/stores/refereeStore.js')
+  const store = source('src/renderer/src/stores/deviceStore.js')
   const scoreboard = source('src/renderer/src/components/ScoreBoard.vue')
   const wizard = source('src/renderer/src/components/SetupWizard.vue')
 

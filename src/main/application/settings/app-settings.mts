@@ -1,5 +1,6 @@
 export interface AppSettings {
   language: 'zh' | 'en' | 'ja'
+  theme: 'light' | 'dark'
   reset_shortcut: string
   suppress_reset_confirm: boolean
   suppress_zero_confirm: boolean
@@ -12,6 +13,7 @@ export type AppSettingKey = keyof AppSettings
 
 const APP_SETTING_KEYS = new Set<AppSettingKey>([
   'language',
+  'theme',
   'reset_shortcut',
   'suppress_reset_confirm',
   'suppress_zero_confirm',
@@ -23,6 +25,7 @@ const APP_SETTING_KEYS = new Set<AppSettingKey>([
 export function createDefaultAppSettings(): AppSettings {
   return {
     language: 'zh',
+    theme: 'light',
     reset_shortcut: 'Ctrl+G',
     suppress_reset_confirm: false,
     suppress_zero_confirm: false,
@@ -44,6 +47,10 @@ export function normalizeAppSetting(
     if (value !== 'zh' && value !== 'en' && value !== 'ja') {
       throw new Error('SETTINGS_VALUE_INVALID')
     }
+    return value
+  }
+  if (key === 'theme') {
+    if (value !== 'light' && value !== 'dark') throw new Error('SETTINGS_VALUE_INVALID')
     return value
   }
   if (key === 'reset_shortcut') {

@@ -1,7 +1,7 @@
 <template>
   <div class="replay-view">
     <header class="replay-header">
-      <button class="back-button" :title="$t('replay_back')" @click="$emit('back')">
+      <button class="back-button" :title="$t('replay_back')" @click="router.push('/dashboard')">
         <ArrowLeft :size="18" />
       </button>
       <div>
@@ -111,13 +111,17 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, FolderOpen } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { buildReplayScores } from '../media/replayScores.mjs'
-import { useRefereeStore } from '../stores/refereeStore'
+import { useCompetitionStore } from '../stores/competitionStore'
+import { useReplayStore } from '../stores/replayStore'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
 
-defineEmits(['back'])
-const store = useRefereeStore()
+const competitionStore = useCompetitionStore()
+const replayStore = useReplayStore()
+const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const projects = ref([])
 const selectedProjectDir = ref('')
@@ -167,18 +171,53 @@ const visibleReplayScores = computed(() => {
 })
 
 onMounted(async () => {
-  projects.value = await store.fetchHistoryProjects()
+  projects.value = await competitionStore.fetchHistoryProjects()
+  const requestedCompetition = String(route.query.competition || '')
+  if (projects.value.some((project) => project.id === requestedCompetition)) {
+    selectedProjectDir.value = requestedCompetition
+  }
 })
 
 watch(selectedProjectDir, () => {
-  selectedGroup.value = availableGroups.value[0]?.name || ''
+  const requestedGroup =
+    selectedProjectDir.value === String(route.query.competition || '')
+      ? String(route.query.group || '')
+      : ''
+  selectedGroup.value = availableGroups.value.some((group) => group.name === requestedGroup)
+    ? requestedGroup
+    : availableGroups.value[0]?.name || ''
   selectedReferee.value = 'all'
 })
 
 watch(selectedGroup, () => {
-  selectedContestant.value = availableContestants.value[0] || ''
-  selectedReferee.value = 'all'
+  const requestedContestant =
+    selectedProjectDir.value === String(route.query.competition || '') &&
+    selectedGroup.value === String(route.query.group || '')
+      ? String(route.query.contestant || '')
+      : ''
+  selectedContestant.value = availableContestants.value.includes(requestedContestant)
+    ? requestedContestant
+    : availableContestants.value[0] || ''
+  selectedReferee.value =
+    selectedProjectDir.value === String(route.query.competition || '') &&
+    selectedGroup.value === String(route.query.group || '')
+      ? String(route.query.referee || 'all')
+      : 'all'
 })
+
+watch(
+  [selectedProjectDir, selectedGroup, selectedContestant, selectedReferee],
+  ([competition, group, contestant, referee]) => {
+    const query = {
+      ...(competition ? { competition } : {}),
+      ...(group ? { group } : {}),
+      ...(contestant ? { contestant } : {}),
+      ...(referee !== 'all' ? { referee } : {})
+    }
+    if (JSON.stringify(route.query) !== JSON.stringify(query)) void router.replace({ query })
+  },
+  { flush: 'post' }
+)
 
 watch(
   [selectedProjectDir, selectedGroup, selectedContestant],
@@ -191,7 +230,7 @@ watch(
     activeEventId.value = ''
     if (!dirName || !groupName || !contestantName) return
     loading.value = true
-    const data = await store.fetchReplayData(dirName, groupName, contestantName)
+    const data = await replayStore.fetchReplayData(dirName, groupName, contestantName)
     if (sequence !== requestSequence) return
     binding.value = data?.binding || null
     events.value = data?.events || []

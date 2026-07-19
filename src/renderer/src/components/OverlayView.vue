@@ -177,10 +177,12 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
-import { useRefereeStore } from '../stores/refereeStore'
+import { useCompetitionStore } from '../stores/competitionStore'
+import { useMatchStore } from '../stores/matchStore'
 import WaveformWidget from './WaveformWidget.vue'
 
-const store = useRefereeStore()
+const store = useMatchStore()
+const competitionStore = useCompetitionStore()
 const GRID_SIZE = 20
 const MIN_REF_CARD_W = 100
 const MIN_REF_CARD_H = 60
@@ -365,11 +367,11 @@ if (window.ftOverlay) {
       store.currentContext = data.context
     }
     if (data.projectConfig) {
-      store.projectConfig = data.projectConfig
+      competitionStore.projectConfig = data.projectConfig
     }
-    if (data.stages) store.stages = data.stages
-    if (data.activeStageId) store.activeStageId = data.activeStageId
-    if (data.activeAttemptNumber) store.activeAttemptNumber = data.activeAttemptNumber
+    if (data.stages) competitionStore.stages = data.stages
+    if (data.activeStageId) competitionStore.activeStageId = data.activeStageId
+    if (data.activeAttemptNumber) competitionStore.activeAttemptNumber = data.activeAttemptNumber
   })
   removeRefereeUpdateListener = window.ftOverlay.onRefereeUpdated((update) => {
     store.updateScore(update)
@@ -649,7 +651,7 @@ const stopDrag = () => {
 const changePlayer = async (delta) => {
   if (contextChangePending.value) return
   const groupName = store.currentContext.groupName
-  const group = store.projectConfig.groups.find(g => g.name === groupName)
+  const group = competitionStore.projectConfig.groups.find(g => g.name === groupName)
   if (!group) return
   const currentIdx = group.players.indexOf(store.currentContext.contestantName)
 
@@ -661,10 +663,10 @@ const changePlayer = async (delta) => {
 
     const nextIdx = currentIdx + delta
 
-    if (nextIdx >= group.players.length && store.projectConfig.mode === 'FREE') {
+    if (nextIdx >= group.players.length && competitionStore.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
-      await store.updateGroups(store.projectConfig.groups)
+      await competitionStore.updateGroups(competitionStore.projectConfig.groups)
       await store.setMatchContext(groupName, newPlayerName)
     } else if (group.players[nextIdx]) {
       await store.setMatchContext(groupName, group.players[nextIdx])

@@ -219,6 +219,7 @@ test('persists validated application settings in SQLite', () => {
   try {
     assert.deepEqual(database.getAppSettings(), {
       language: 'zh',
+      theme: 'light',
       reset_shortcut: 'Ctrl+G',
       suppress_reset_confirm: false,
       suppress_zero_confirm: false,
@@ -227,6 +228,7 @@ test('persists validated application settings in SQLite', () => {
       project_preferences: {}
     })
     database.setAppSetting('language', 'ja')
+    database.setAppSetting('theme', 'dark')
     database.setAppSetting('suppress_zero_confirm', true)
     database.setAppSetting('device_remarks', { 'device-1': 'Judge A' })
     database.setAppSetting('project_preferences', {
@@ -240,6 +242,7 @@ test('persists validated application settings in SQLite', () => {
   try {
     assert.deepEqual(database.getAppSettings(), {
       language: 'ja',
+      theme: 'dark',
       reset_shortcut: 'Ctrl+G',
       suppress_reset_confirm: false,
       suppress_zero_confirm: true,
@@ -260,6 +263,7 @@ test('rejects unknown or unbounded application settings', () => {
   try {
     assert.throws(() => database.setAppSetting('unknown', true), /SETTINGS_KEY_INVALID/)
     assert.throws(() => database.setAppSetting('language', 'unknown'), /SETTINGS_VALUE_INVALID/)
+    assert.throws(() => database.setAppSetting('theme', 'system'), /SETTINGS_VALUE_INVALID/)
     assert.throws(
       () => database.setAppSetting('device_remarks', { device: 'x'.repeat(257) }),
       /SETTINGS_VALUE_INVALID/
