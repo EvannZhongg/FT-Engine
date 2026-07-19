@@ -159,7 +159,9 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
       localData.requireDatabase().reorderStages(competitionId, stageIds),
     delete: (stageId) => localData.requireDatabase().deleteStage(stageId),
     activate: (stageId) => localData.requireDatabase().activateStage(stageId),
-    complete: (stageId) => localData.requireDatabase().completeStage(stageId)
+    complete: (stageId) => localData.requireDatabase().completeStage(stageId),
+    appendFreeContestant: (stageId, groupName, contestantName) =>
+      localData.requireDatabase().appendFreeContestant(stageId, groupName, contestantName)
   })
 
   const exportService = new ExportService(

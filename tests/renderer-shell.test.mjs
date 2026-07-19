@@ -109,12 +109,17 @@ test('uses a full-bleed player with floating score modes in scoring and replay',
   assert.equal(replay.includes('.replay-media { position: absolute; inset: 0;'), true)
   assert.equal(overlayPanel.includes('v-if="showHeader"'), true)
   assert.equal(overlayPanel.includes('setPointerCapture'), true)
-  assert.equal(overlayPanel.includes('clampPosition'), true)
+  assert.equal(overlayPanel.includes('startCardDrag'), true)
+  assert.equal(overlayPanel.includes('clampCardPosition'), true)
+  assert.equal(overlayPanel.includes('cardPositions'), true)
+  assert.equal(overlayPanel.includes('const row = index % rowsPerColumn'), true)
   assert.equal(overlayPanel.includes('new ResizeObserver'), true)
   assert.equal(/\.video-score-layout > \.score-overlay-panel \{[^}]*right:/.test(scoreboard), false)
   assert.equal(/\.replay-score-overlay \{[^}]*right:/.test(replay), false)
   assert.equal(modeSwitch.includes('background: transparent'), true)
   assert.equal(modeSwitch.includes('color: #fff'), true)
+  assert.equal(scoreboard.includes('appendFreeContestant(groupName, newPlayerName)'), true)
+  assert.equal(scoreboard.includes('color: var(--workbench-text)'), true)
 })
 
 test('shares focus-managed dialogs across confirmation, scoring and report workflows', () => {

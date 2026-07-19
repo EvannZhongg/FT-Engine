@@ -9,6 +9,11 @@ export interface StageRepository {
   delete(stageId: string): boolean
   activate(stageId: string): CompetitionStageConfig
   complete(stageId: string): CompetitionStageConfig
+  appendFreeContestant(
+    stageId: string,
+    groupName: string,
+    contestantName: string
+  ): CompetitionStageConfig
 }
 
 export class StageService {
@@ -51,6 +56,18 @@ export class StageService {
   complete(stageId: unknown): CompetitionStageConfig {
     return this.repository.complete(normalizeId(stageId))
   }
+
+  appendFreeContestant(
+    stageId: unknown,
+    groupName: unknown,
+    contestantName: unknown
+  ): CompetitionStageConfig {
+    return this.repository.appendFreeContestant(
+      normalizeId(stageId),
+      normalizeContextName(groupName),
+      normalizeContextName(contestantName)
+    )
+  }
 }
 
 export function normalizeStageInput(value: unknown): StageConfigInput {
@@ -84,6 +101,13 @@ function normalizeId(value: unknown): string {
 function normalizeName(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > 128) {
     throw new Error('STAGE_CONFIG_INVALID')
+  }
+  return value.trim()
+}
+
+function normalizeContextName(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 128) {
+    throw new Error('MATCH_CONTEXT_INVALID')
   }
   return value.trim()
 }

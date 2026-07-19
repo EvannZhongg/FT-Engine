@@ -26,12 +26,12 @@ const group = {
   ]
 }
 
-function createFixture() {
+function createFixture(mode = 'TOURNAMENT') {
   const root = path.join(tmpdir(), `ft-engine-stage-${randomUUID()}`)
   roots.push(root)
   const database = new LocalDatabase(path.join(root, 'ft-engine.db'), path.join(root, 'backups'))
   database.open()
-  const competition = database.createCompetition({ name: 'Stage Event', mode: 'TOURNAMENT' })
+  const competition = database.createCompetition({ name: 'Stage Event', mode })
   const stages = new StageService({
     list: (competitionId) => database.listStages(competitionId),
     create: (competitionId, input) => database.createStage(competitionId, input),
@@ -39,7 +39,9 @@ function createFixture() {
     reorder: (competitionId, stageIds) => database.reorderStages(competitionId, stageIds),
     delete: (stageId) => database.deleteStage(stageId),
     activate: (stageId) => database.activateStage(stageId),
-    complete: (stageId) => database.completeStage(stageId)
+    complete: (stageId) => database.completeStage(stageId),
+    appendFreeContestant: (stageId, groupName, contestantName) =>
+      database.appendFreeContestant(stageId, groupName, contestantName)
   })
   return { database, competition, stages }
 }
@@ -189,6 +191,47 @@ test('enforces stage and competition lifecycle transitions', () => {
       queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id)
         .status,
       'completed'
+    )
+  } finally {
+    database.close()
+  }
+})
+
+test('appends persisted contestants to an active Free Mode stage', () => {
+  const { database, competition, stages } = createFixture('FREE')
+  try {
+    const main = stages.list(competition.id)[0]
+    const freeGroup = { ...group, name: 'Free Mode', players: ['Player 1'] }
+    stages.update(main.id, { name: 'Main', attempts: 2, groups: [freeGroup] })
+    stages.activate(main.id)
+
+    const updated = stages.appendFreeContestant(main.id, 'Free Mode', 'Player 2')
+    assert.deepEqual(updated.groups[0].players, ['Player 1', 'Player 2'])
+    assert.equal(
+      database.hasMatchContext(competition.id, main.id, 'Free Mode', 'Player 2', 1, [1]),
+      true
+    )
+    assert.equal(
+      database.hasMatchContext(competition.id, main.id, 'Free Mode', 'Player 2', 2, [1]),
+      true
+    )
+    assert.deepEqual(
+      stages.appendFreeContestant(main.id, 'Free Mode', 'Player 2').groups[0].players,
+      ['Player 1', 'Player 2']
+    )
+  } finally {
+    database.close()
+  }
+})
+
+test('rejects dynamic contestant appends outside Free Mode', () => {
+  const { database, competition, stages } = createFixture()
+  try {
+    const main = stages.list(competition.id)[0]
+    stages.update(main.id, { name: 'Main', attempts: 1, groups: [group] })
+    assert.throws(
+      () => stages.appendFreeContestant(main.id, 'Open', 'Charlie'),
+      /FREE_CONTESTANT_APPEND_FORBIDDEN/
     )
   } finally {
     database.close()

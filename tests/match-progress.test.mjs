@@ -150,6 +150,44 @@ test('rolls back current completion when the next session cannot activate', () =
   }
 })
 
+test('reactivates a completed contestant for rejudging', () => {
+  const { database, context } = createFixture()
+  try {
+    database.activateMatchSession(context('Alice'), '2026-07-19T02:10:00.000Z')
+    database.transitionMatchSession(context('Alice'), context('Bob'), '2026-07-19T02:11:00.000Z')
+    database.transitionMatchSession(context('Bob'), context('Alice'), '2026-07-19T02:12:00.000Z')
+
+    assert.deepEqual(
+      all(
+        database,
+        `SELECT p.name, ms.status, ms.completed_at FROM match_sessions ms
+         JOIN contestants p ON p.id = ms.contestant_id ORDER BY p.position`
+      ),
+      [
+        { name: 'Alice', status: 'active', completed_at: null },
+        { name: 'Bob', status: 'completed', completed_at: '2026-07-19T02:12:00.000Z' }
+      ]
+    )
+    assert.deepEqual(
+      all(
+        database,
+        `SELECT from_status, to_status, reason FROM match_session_transitions
+         WHERE match_session_id = (
+           SELECT ms.id FROM match_sessions ms
+           JOIN contestants p ON p.id = ms.contestant_id WHERE p.name = 'Alice'
+         ) ORDER BY created_at, rowid`
+      ),
+      [
+        { from_status: 'pending', to_status: 'active', reason: 'start' },
+        { from_status: 'active', to_status: 'completed', reason: 'context_switch' },
+        { from_status: 'completed', to_status: 'active', reason: 'context_switch' }
+      ]
+    )
+  } finally {
+    database.close()
+  }
+})
+
 test('invalidates a started session without mutating its score events', () => {
   const { database, context } = createFixture()
   try {

@@ -77,7 +77,8 @@ export const IPC_CHANNELS = {
     reorder: 'stages:reorder',
     delete: 'stages:delete',
     activate: 'stages:activate',
-    complete: 'stages:complete'
+    complete: 'stages:complete',
+    appendFreeContestant: 'stages:append-free-contestant'
   },
   exports: {
     saveDetails: 'exports:save-details',
@@ -377,6 +378,11 @@ export interface FtEngineApi {
     delete: (stageId: string) => Promise<boolean>
     activate: (stageId: string) => Promise<CompetitionStageConfig>
     complete: (stageId: string) => Promise<CompetitionStageConfig>
+    appendFreeContestant: (
+      stageId: string,
+      groupName: string,
+      contestantName: string
+    ) => Promise<CompetitionStageConfig>
   }
   exports: {
     saveDetails: (request: DetailExportRequest) => Promise<ExportSaveResult>

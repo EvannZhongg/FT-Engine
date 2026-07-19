@@ -128,7 +128,7 @@ export class MatchProgressRepository {
   ): void {
     if (session.match_status === 'active') return
     if (
-      session.match_status !== 'pending' ||
+      !['pending', 'completed'].includes(session.match_status) ||
       ['completed', 'archived'].includes(session.competition_status) ||
       session.stage_status === 'completed'
     ) {
@@ -153,7 +153,7 @@ export class MatchProgressRepository {
       .prepare(
         `
         UPDATE match_sessions
-        SET status = 'active', started_at = COALESCE(started_at, ?)
+        SET status = 'active', started_at = COALESCE(started_at, ?), completed_at = NULL
         WHERE id = ?
       `
       )

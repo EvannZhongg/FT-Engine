@@ -140,6 +140,14 @@ export class LocalDatabase {
     return this.stages.complete(stageId)
   }
 
+  appendFreeContestant(
+    stageId: string,
+    groupName: string,
+    contestantName: string
+  ): CompetitionStageConfig {
+    return this.stages.appendFreeContestant(stageId, groupName, contestantName)
+  }
+
   hasMatchContext(
     sourceKey: string,
     stageId: string,

@@ -113,6 +113,20 @@ export const useCompetitionStore = defineStore('competitions', {
       return this.updateStage(stage.id, { name: stage.name, attempts: stage.attempts, groups })
     },
 
+    async appendFreeContestant(groupName, contestantName) {
+      const stage = this.activeStage
+      if (!stage || !window.ftEngine?.stages) throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      const updated = await window.ftEngine.stages.appendFreeContestant(
+        stage.id,
+        groupName,
+        contestantName
+      )
+      const index = this.stages.findIndex((item) => item.id === updated.id)
+      if (index >= 0) this.stages.splice(index, 1, updated)
+      this.selectStage(updated.id, this.activeAttemptNumber)
+      return updated
+    },
+
     async reorderStages(stageIds) {
       if (!window.ftEngine?.stages || !this.projectConfig.id) {
         throw new Error('LOCAL_STAGES_UNAVAILABLE')

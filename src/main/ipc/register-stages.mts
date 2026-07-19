@@ -38,4 +38,12 @@ export function registerStageIpc(context: IpcRegistrationContext, stages: StageS
     context.assertMainSender(event)
     return stages.complete(stageId)
   })
+
+  ipcMain.handle(
+    IPC_CHANNELS.stages.appendFreeContestant,
+    (event, stageId, groupName, contestantName) => {
+      context.assertMainSender(event)
+      return stages.appendFreeContestant(stageId, groupName, contestantName)
+    }
+  )
 }

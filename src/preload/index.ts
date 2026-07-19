@@ -68,7 +68,8 @@ const IPC_CHANNELS = {
     reorder: 'stages:reorder',
     delete: 'stages:delete',
     activate: 'stages:activate',
-    complete: 'stages:complete'
+    complete: 'stages:complete',
+    appendFreeContestant: 'stages:append-free-contestant'
   },
   exports: {
     saveDetails: 'exports:save-details',
@@ -169,7 +170,14 @@ const ftEngine = {
       ipcRenderer.invoke(IPC_CHANNELS.stages.reorder, competitionId, stageIds),
     delete: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.delete, stageId),
     activate: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.activate, stageId),
-    complete: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.complete, stageId)
+    complete: (stageId) => ipcRenderer.invoke(IPC_CHANNELS.stages.complete, stageId),
+    appendFreeContestant: (stageId, groupName, contestantName) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.stages.appendFreeContestant,
+        stageId,
+        groupName,
+        contestantName
+      )
   },
   exports: {
     saveDetails: (request) => ipcRenderer.invoke(IPC_CHANNELS.exports.saveDetails, request),

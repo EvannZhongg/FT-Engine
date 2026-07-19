@@ -100,8 +100,8 @@
         <Video :size="14" />
         {{ $t(`match_media_${store.matchStatus.media}`) }}
       </span>
-      <code v-if="store.matchStatus.errorCode" class="health-error">
-        {{ store.matchStatus.errorCode }}
+      <code v-if="contextSwitchError || store.matchStatus.errorCode" class="health-error">
+        {{ contextSwitchError || store.matchStatus.errorCode }}
       </code>
     </div>
 
@@ -378,6 +378,7 @@ const mediaError = ref('')
 const mediaSaved = ref(false)
 const isContextChanging = ref(false)
 const isRetryingWorker = ref(false)
+const contextSwitchError = ref('')
 
 const retryPlatformWorker = async () => {
   if (isRetryingWorker.value) return
@@ -600,13 +601,21 @@ const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
   const group = competitionStore.activeGroups.find(g => g.name === groupName)
   if (!group || !group.players) return
-  const nextIdx = (currentIdx.value === -1 ? 0 : currentIdx.value) + delta
+  const baseIndex = currentIdx.value === -1 ? (delta > 0 ? -1 : 0) : currentIdx.value
+  const nextIdx = baseIndex + delta
   if (nextIdx >= group.players.length) {
     if (competitionStore.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
-      group.players.push(newPlayerName)
-      await competitionStore.updateActiveStageGroups(competitionStore.activeGroups)
-      await switchContext(newPlayerName)
+      try {
+        await competitionStore.appendFreeContestant(groupName, newPlayerName)
+        await switchContext(newPlayerName)
+      } catch (error) {
+        contextSwitchError.value =
+          error && typeof error === 'object' && typeof error.code === 'string'
+            ? error.code
+            : 'MATCH_CONTEXT_INVALID'
+        console.error('Append free contestant failed:', error)
+      }
     }
   } else if (nextIdx < 0) {
       const target = group.players[group.players.length - 1]
@@ -618,10 +627,20 @@ const changePlayer = async (delta) => {
 }
 
 const switchContext = async (name) => {
-  if (isContextChanging.value || !name || name === store.currentContext.contestantName) return
+  if (isContextChanging.value || !name) return false
+  if (name === store.currentContext.contestantName) return true
   isContextChanging.value = true
   try {
     await store.setMatchContext(store.currentContext.groupName, name)
+    contextSwitchError.value = ''
+    return true
+  } catch (error) {
+    contextSwitchError.value =
+      error && typeof error === 'object' && typeof error.code === 'string'
+        ? error.code
+        : 'MATCH_CONTEXT_INVALID'
+    console.error('Switch match context failed:', error)
+    return false
   } finally {
     isContextChanging.value = false
   }
@@ -649,7 +668,11 @@ const manualChange = async (delta) => {
     await changePlayer(delta)
 }
 
-const onSelectPlayer = async (e) => { await switchContext(e.target.value) }
+const onSelectPlayer = async (event) => {
+  const select = event.currentTarget
+  const switched = await switchContext(select.value)
+  if (!switched) select.value = store.currentContext.contestantName
+}
 
 const handleGlobalKeydown = (e) => {
   const shortcut = settingsStore.appSettings.reset_shortcut || "Ctrl+G"
@@ -741,9 +764,9 @@ const confirmOverlay = async () => {
 .btn-tool:disabled, .nav-arrow:disabled, .player-select:disabled { opacity: 0.5; cursor: wait; }
 .btn-stop { background: transparent; border: 1px solid #444; color: #aaa; &:hover { color: #fff; border-color: #666; background: #333; } }
 .player-navigator { display: flex; align-items: center; background: var(--workbench-input); border-radius: 6px; border: 1px solid var(--workbench-border-subtle); padding: 3px; height: 38px; }
-.nav-arrow { background: transparent; border: none; color: #666; width: 30px; height: 100%; cursor: pointer; border-radius: 4px; &:hover { background: #222; color: #fff; } }
+.nav-arrow { background: transparent; border: none; color: var(--workbench-muted-strong); width: 30px; height: 100%; cursor: pointer; border-radius: 4px; &:hover { background: var(--workbench-surface-hover); color: var(--workbench-text); } }
 .select-wrapper { position: relative; margin: 0 5px; }
-.player-select { background: transparent; color: white; border: none; font-size: 1.1rem; font-weight: bold; text-align: center; outline: none; appearance: none; cursor: pointer; min-width: 120px; padding: 0 10px; option { background: #333; } option.option-scored { color: #2ecc71; } }
+.player-select { background: transparent; color: var(--workbench-text); border: none; font-size: 1.1rem; font-weight: bold; text-align: center; outline: none; appearance: none; cursor: pointer; min-width: 120px; padding: 0 10px; option { background: var(--workbench-surface-raised); color: var(--workbench-text); } option.option-scored { color: var(--workbench-success); } }
 .btn-auto { background: #252526; border: 1px solid #444; position: relative; .status-dot { width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: #444; transition: all 0.3s ease; } &.active { background: rgba(46, 204, 113, 0.15); border-color: #2ecc71; color: #2ecc71; .status-dot { background: #2ecc71; box-shadow: 0 0 6px rgba(46, 204, 113, 0.8); } } }
 .divider-vertical { width: 1px; height: 24px; background: #333; margin: 0 4px; }
 .btn-overlay { background: var(--workbench-accent); color: white; &:hover { filter: brightness(1.12); } }

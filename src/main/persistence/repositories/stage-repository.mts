@@ -7,6 +7,7 @@ import type {
   StageStatus
 } from '../../../shared/contracts/stage.mts'
 import type { SqliteConnection } from '../sqlite/connection.mts'
+import { stableDatabaseId } from '../sqlite/ids.mts'
 import { readStageGroups, replaceStageGraph } from '../sqlite/stage-graph.mts'
 
 interface StageRow {
@@ -196,6 +197,73 @@ export class StageRepository {
       database
         .prepare('UPDATE competitions SET status = ?, updated_at = ? WHERE id = ?')
         .run(remaining ? 'active' : 'completed', new Date().toISOString(), stage.competition_id)
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+    return this.requireConfig(stageId)
+  }
+
+  appendFreeContestant(
+    stageId: string,
+    groupName: string,
+    contestantName: string
+  ): CompetitionStageConfig {
+    const database = this.connection.requireDatabase()
+    const stage = this.requireStage(database, stageId)
+    if (stage.status === 'completed' || stage.competition_status === 'completed' || stage.competition_status === 'archived') {
+      throw new Error('STAGE_STATE_CONFLICT')
+    }
+    const competition = database
+      .prepare('SELECT mode FROM competitions WHERE id = ?')
+      .get(stage.competition_id) as { mode: string } | undefined
+    if (competition?.mode !== 'FREE') throw new Error('FREE_CONTESTANT_APPEND_FORBIDDEN')
+
+    const group = database
+      .prepare('SELECT id FROM competition_groups WHERE stage_id = ? AND name = ? LIMIT 1')
+      .get(stageId, groupName) as { id: string } | undefined
+    if (!group) throw new Error('MATCH_CONTEXT_INVALID')
+    const existing = database
+      .prepare('SELECT id FROM contestants WHERE group_id = ? AND name = ? LIMIT 1')
+      .get(group.id, contestantName)
+    if (existing) return this.requireConfig(stageId)
+
+    const positionRow = database
+      .prepare('SELECT COALESCE(MAX(position), -1) + 1 AS position FROM contestants WHERE group_id = ?')
+      .get(group.id) as { position: number }
+    const position = Number(positionRow.position)
+    if (position >= 2000) throw new Error('COMPETITION_CONFIG_INVALID')
+    const contestantId = stableDatabaseId(
+      stage.competition_id,
+      stageId,
+      group.id,
+      'contestant',
+      String(position),
+      contestantName
+    )
+
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      database
+        .prepare(
+          `INSERT INTO contestants (id, group_id, name, position, status)
+           VALUES (?, ?, ?, ?, 'pending')`
+        )
+        .run(contestantId, group.id, contestantName, position)
+      for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
+        database
+          .prepare(
+            `INSERT INTO match_sessions (id, contestant_id, attempt_number, status, rule_version)
+             VALUES (?, ?, ?, 'pending', 'route-b-v1')`
+          )
+          .run(
+            stableDatabaseId(stage.competition_id, stageId, contestantId, 'session', String(attempt)),
+            contestantId,
+            attempt
+          )
+      }
+      this.touchCompetition(database, stage.competition_id)
       database.exec('COMMIT')
     } catch (error) {
       database.exec('ROLLBACK')
