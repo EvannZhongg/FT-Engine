@@ -27,6 +27,7 @@ const props = defineProps({
   height: { type: String, default: 'auto' },
   padding: { type: String, default: '22px' },
   variant: { type: String, default: 'app' },
+  allowOverflow: Boolean,
   closeOnBackdrop: { type: Boolean, default: true },
   closeOnEscape: { type: Boolean, default: true },
   initialFocus: { type: String, default: '[autofocus], button:not(:disabled)' }
@@ -38,7 +39,8 @@ let previouslyFocused = null
 const surfaceStyle = computed(() => ({
   width: `min(${props.width}, calc(100vw - 48px))`,
   height: props.height,
-  padding: props.padding
+  padding: props.padding,
+  overflow: props.allowOverflow ? 'visible' : undefined
 }))
 
 const focusableElements = () => [

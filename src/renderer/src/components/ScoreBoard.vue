@@ -173,6 +173,7 @@
       width="520px"
       padding="0"
       variant="workbench"
+      allow-overflow
       :close-on-backdrop="false"
       @close="showWindowSelector = false"
     >
@@ -847,7 +848,7 @@ const confirmOverlay = async () => {
 .win-select span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .win-select span.placeholder, .win-select svg { color: #8d929b; }
 .win-select svg { flex: 0 0 auto; }
-.window-option-list { position: absolute; z-index: 4; top: calc(100% + 4px); left: 0; right: 0; width: 100%; max-width: 100%; max-height: min(220px, calc(100vh - 300px)); min-height: 38px; overflow-x: hidden; overflow-y: auto; padding: 4px; border: 1px solid #444; border-radius: 4px; background: #17181a; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.48); }
+.window-option-list { position: absolute; z-index: 4; top: calc(100% + 4px); left: 0; right: 0; width: 100%; max-width: 100%; max-height: min(320px, calc(100vh - 300px)); min-height: 38px; overflow-x: hidden; overflow-y: auto; padding: 4px; border: 1px solid #444; border-radius: 4px; background: #17181a; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.48); }
 .window-option-list button { width: 100%; min-width: 0; height: 34px; display: block; overflow: hidden; padding: 0 8px; border: 0; border-radius: 3px; background: transparent; color: #d8dade; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .window-option-list button:hover, .window-option-list button:focus-visible, .window-option-list button.selected { outline: none; background: var(--workbench-accent-soft); color: #fff; }
 .dont-ask-label { display: block; margin-top: 15px; color: #aaa; cursor: pointer; input { margin-right: 5px; } }

@@ -116,6 +116,8 @@ test('uses a full-bleed player with floating score modes in scoring and replay',
   assert.equal(overlayPanel.includes('new ResizeObserver'), true)
   assert.match(overlayPanel, /background:\s*rgba\(20, 20, 20, 0\.85\)/)
   assert.equal(scoreboard.includes('class="window-option-list"'), true)
+  assert.equal(scoreboard.includes('allow-overflow'), true)
+  assert.equal(source('src/renderer/src/components/DialogShell.vue').includes("overflow: props.allowOverflow ? 'visible'"), true)
   assert.match(scoreboard, /\.window-option-list \{[^}]*left:\s*0;[^}]*right:\s*0;[^}]*width:\s*100%/)
   assert.match(scoreboard, /\.window-option-list button \{[^}]*text-overflow:\s*ellipsis/)
   assert.equal(/\.video-score-layout > \.score-overlay-panel \{[^}]*right:/.test(scoreboard), false)
