@@ -93,6 +93,21 @@ test('routes operational workspace structure through shared semantic tokens', ()
   }
 })
 
+test('uses a full-bleed player with floating score modes in scoring and replay', () => {
+  const modeSwitch = source('src/renderer/src/components/ScoreDisplayModeSwitch.vue')
+  const scoreboard = source('src/renderer/src/components/ScoreBoard.vue')
+  const replay = source('src/renderer/src/components/ReplayView.vue')
+  const overlayPanel = source('src/renderer/src/components/ScoreOverlayPanel.vue')
+
+  for (const value of ['TOTAL', 'SPLIT', 'COMBINED']) assert.equal(modeSwitch.includes(value), true, value)
+  assert.equal(scoreboard.includes('<ScoreDisplayModeSwitch v-model="videoDisplayMode" />'), true)
+  assert.equal(scoreboard.includes(':show-header="false"'), true)
+  assert.equal(scoreboard.includes('.video-score-layout { position: relative;'), true)
+  assert.equal(replay.includes('<ScoreDisplayModeSwitch v-model="replayDisplayMode" />'), true)
+  assert.equal(replay.includes('.replay-media { position: absolute; inset: 0;'), true)
+  assert.equal(overlayPanel.includes('v-if="showHeader"'), true)
+})
+
 test('shares focus-managed dialogs across confirmation, scoring and report workflows', () => {
   const shell = source('src/renderer/src/components/DialogShell.vue')
   for (const behavior of [

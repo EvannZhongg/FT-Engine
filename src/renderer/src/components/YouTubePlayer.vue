@@ -149,8 +149,8 @@ defineExpose({ openAt })
 </script>
 
 <style scoped>
-.youtube-player { width: 100%; }
-.player-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0b0b0b; overflow: hidden; border-radius: 6px; }
+.youtube-player { width: 100%; height: 100%; min-height: 0; }
+.player-frame { position: relative; width: 100%; height: 100%; min-height: 180px; background: #0b0b0b; overflow: hidden; border-radius: 6px; }
 .iframe-host { width: 100%; height: 100%; }
 .player-placeholder, .player-error { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #8d929b; text-align: center; padding: 24px; box-sizing: border-box; }
 .player-error { background: rgba(12, 12, 12, 0.94); color: #e5e7eb; }

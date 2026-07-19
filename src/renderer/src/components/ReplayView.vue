@@ -8,6 +8,7 @@
         <h2>{{ $t('replay_title') }}</h2>
         <div class="replay-subtitle">{{ selectedProjectName }}</div>
       </div>
+      <ScoreDisplayModeSwitch v-model="replayDisplayMode" />
     </header>
 
     <div class="replay-layout">
@@ -67,6 +68,8 @@
               class="replay-score-overlay"
               :referees="visibleReplayScores"
               :contestant="selectedContestant"
+              :display-mode="replayDisplayMode"
+              :show-header="false"
             />
           </section>
 
@@ -116,6 +119,7 @@ import { buildReplayScores } from '../media/replayScores.mjs'
 import { useCompetitionStore } from '../stores/competitionStore'
 import { useReplayStore } from '../stores/replayStore'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
+import ScoreDisplayModeSwitch from './ScoreDisplayModeSwitch.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
 
 const competitionStore = useCompetitionStore()
@@ -135,6 +139,7 @@ const playbackTimeMs = ref(0)
 const activeEventId = ref('')
 const loading = ref(false)
 const playerRef = ref(null)
+const replayDisplayMode = ref('COMBINED')
 let requestSequence = 0
 
 const selectedProject = computed(() =>
@@ -289,6 +294,7 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 <style scoped>
 .replay-view { height: 100%; display: flex; flex-direction: column; background: var(--workbench-bg); color: var(--workbench-text); }
 .replay-header { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--workbench-border-subtle); box-sizing: border-box; }
+.replay-header > .score-display-mode-switch { margin-left: auto; }
 .replay-header h2 { margin: 0; font-size: 1.05rem; letter-spacing: 0; }
 .replay-subtitle { color: var(--workbench-muted); font-size: 0.76rem; margin-top: 2px; }
 .back-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--workbench-border); border-radius: 5px; background: var(--workbench-surface-raised); color: var(--workbench-text); cursor: pointer; }
@@ -297,10 +303,10 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 .replay-sidebar label { display: block; margin-bottom: 16px; }
 .replay-sidebar label > span { display: block; margin-bottom: 6px; color: var(--workbench-muted-strong); font-size: 0.75rem; }
 .replay-sidebar select { width: 100%; height: 34px; border: 1px solid var(--workbench-border); border-radius: 4px; background: var(--workbench-input); color: var(--workbench-text); padding: 0 8px; }
-.replay-main { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr); gap: 18px; padding: 18px; box-sizing: border-box; overflow: hidden; }
-.replay-media { align-self: start; min-width: 0; }
-.replay-score-overlay { margin-top: 14px; }
-.timeline { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--workbench-border-subtle); padding-left: 18px; }
+.replay-main { position: relative; min-width: 0; min-height: 0; display: block; box-sizing: border-box; overflow: hidden; }
+.replay-media { position: absolute; inset: 0; min-width: 0; height: 100%; }
+.replay-score-overlay { position: absolute; top: 70px; left: 18px; right: min(398px, 34vw); z-index: 4; pointer-events: none; }
+.timeline { position: absolute; top: 0; right: 0; bottom: 0; width: min(380px, 32vw); min-width: 320px; display: flex; flex-direction: column; border-left: 1px solid var(--workbench-border-subtle); padding: 18px; box-sizing: border-box; background: color-mix(in srgb, var(--workbench-surface) 92%, transparent); backdrop-filter: blur(10px); z-index: 5; }
 .timeline-header { min-height: 32px; display: flex; justify-content: space-between; align-items: center; }
 .timeline-header h3 { margin: 0; font-size: 0.95rem; letter-spacing: 0; }
 .timeline-header span { color: var(--workbench-muted); font-size: 0.8rem; }
@@ -317,7 +323,7 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 .timeline-empty, .empty-replay { color: var(--workbench-muted); display: flex; align-items: center; justify-content: center; min-height: 160px; }
 .empty-replay { grid-column: 1 / -1; flex-direction: column; gap: 10px; }
 @media (max-width: 900px) {
-  .replay-main { grid-template-columns: 1fr; overflow-y: auto; }
-  .timeline { min-height: 360px; border-left: 0; padding-left: 0; }
+  .replay-score-overlay { right: 18px; }
+  .timeline { top: auto; left: 0; width: 100%; min-width: 0; height: min(42%, 360px); border-left: 0; border-top: 1px solid var(--workbench-border-subtle); padding: 12px 18px; }
 }
 </style>

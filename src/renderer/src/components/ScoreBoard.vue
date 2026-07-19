@@ -114,6 +114,7 @@
           <Youtube :size="18" />
           <span>{{ $t('media_video_scoring') }}</span>
         </div>
+        <ScoreDisplayModeSwitch v-model="videoDisplayMode" />
         <button class="workspace-icon-button" :title="$t('media_change_video')" @click="openPresentationSelector('video')">
           <Link2 :size="17" />
         </button>
@@ -137,6 +138,8 @@
         <ScoreOverlayPanel
           :referees="store.referees"
           :contestant="store.currentContext.contestantName"
+          :display-mode="videoDisplayMode"
+          :show-header="false"
         />
       </div>
     </div>
@@ -340,6 +343,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Ban, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
+import ScoreDisplayModeSwitch from './ScoreDisplayModeSwitch.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
 import DialogShell from './DialogShell.vue'
 import { normalizeYouTubeUrl } from '../media/youtube'
@@ -365,6 +369,7 @@ const windowList = ref([])
 const selectedTargetWindow = ref("")
 const presentationMode = ref('window')
 const showVideoWorkspace = ref(false)
+const videoDisplayMode = ref('COMBINED')
 const videoUrl = ref('')
 const savingMedia = ref(false)
 const mediaError = ref('')
@@ -744,14 +749,17 @@ const confirmOverlay = async () => {
 .btn-zero { background: rgba(192, 57, 43, 0.2); color: #e74c3c; border: 1px solid rgba(192, 57, 43, 0.4); padding: 0 10px; min-width: 50px; justify-content: center; position: relative; &:hover { background: #c0392b; color: white; } }
 .shortcut-tag { position: absolute; top: -8px; right: -5px; font-size: 0.65rem; background: #111; color: #aaa; border: 1px solid #444; padding: 1px 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); &.warning { border-color: #c0392b; color: #e74c3c; } }
 .panels-container { flex: 1; min-width: 0; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); grid-auto-rows: max-content; gap: 15px; align-content: start; overflow-y: auto; }
-.video-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 18px; box-sizing: border-box; overflow: auto; }
-.video-workspace-toolbar { min-height: 36px; display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 10px; margin-bottom: 12px; }
-.workspace-title { display: flex; align-items: center; justify-content: center; gap: 8px; color: #eceef1; font-size: 0.9rem; font-weight: 650; }
+.video-workspace { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; box-sizing: border-box; overflow: hidden; }
+.video-workspace-toolbar { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 20; min-height: 36px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 34px; align-items: center; gap: 10px; pointer-events: none; }
+.video-workspace-toolbar > * { pointer-events: auto; }
+.workspace-title { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--workbench-text); font-size: 0.9rem; font-weight: 650; text-shadow: 0 1px 8px color-mix(in srgb, var(--workbench-bg) 80%, transparent); }
 .workspace-icon-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--workbench-border); border-radius: 5px; background: var(--workbench-surface-raised); color: var(--workbench-text-secondary); cursor: pointer; }
 .workspace-icon-button:hover { background: var(--workbench-surface-hover); color: var(--workbench-text); }
-.video-score-layout { min-height: 0; display: grid; grid-template-columns: minmax(390px, 1.55fr) minmax(260px, 0.75fr); gap: 18px; align-items: start; }
-.workspace-player { min-width: 0; }
-.bind-video-command { width: 100%; min-height: 36px; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--workbench-accent); border-radius: 5px; background: var(--workbench-accent-soft); color: var(--workbench-text); cursor: pointer; }
+.video-score-layout { position: relative; flex: 1; min-height: 0; display: block; }
+.workspace-player { width: 100%; height: 100%; min-width: 0; }
+.video-score-layout > .score-overlay-panel { position: absolute; top: 70px; left: 18px; right: 18px; z-index: 10; pointer-events: none; }
+.video-score-layout > .score-overlay-panel :deep(.overlay-score-card) { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32); }
+.bind-video-command { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); width: min(320px, calc(100% - 40px)); min-height: 36px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--workbench-accent); border-radius: 5px; background: color-mix(in srgb, var(--workbench-accent-soft) 92%, transparent); color: var(--workbench-text); cursor: pointer; }
 .score-card { background: #ecf0f1; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); color: #2c3e50; .card-top { width: 100%; display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; font-weight: bold; } .status-indicators { display: flex; gap: 4px; } .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bdc3c7; &.connected { background: #2ecc71; } } .score-main { font-size: 4rem; font-weight: 800; line-height: 1; margin: 10px 0; } .score-detail { font-size: 1rem; color: #666; background: #ddd; padding: 2px 10px; border-radius: 10px; } }
 .modal-content { background: var(--workbench-surface-raised); padding: 25px; border-radius: 8px; width: min(380px, calc(100vw - 48px)); box-sizing: border-box; text-align: center; color: var(--workbench-text); h3 { margin-top: 0; } }
 .presentation-dialog { width: min(520px, calc(100vw - 48px)); box-sizing: border-box; }
@@ -785,6 +793,8 @@ const confirmOverlay = async () => {
 }
 
 @media (max-width: 780px) {
-  .video-score-layout { grid-template-columns: 1fr; }
+  .video-workspace-toolbar { left: 10px; right: 10px; }
+  .workspace-title span { display: none; }
+  .video-score-layout > .score-overlay-panel { left: 10px; right: 10px; }
 }
 </style>
