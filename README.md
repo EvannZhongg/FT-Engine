@@ -26,21 +26,23 @@ The Platform Worker has OS-native dependencies, so Windows and macOS must use se
 
 ## Development
 
-```bash
-npm install
-python3 -m venv .venv-mac
-source .venv-mac/bin/activate
-python -m pip install -r requirements-macos.txt
-npm run dev
-```
-
-On Windows PowerShell:
+### Windows
 
 ```powershell
 npm install
-py -3 -m venv .venv-win
+py -3.12 -m venv .venv-win
 .\.venv-win\Scripts\Activate.ps1
 python -m pip install -r requirements-windows.txt
+npm run dev
+```
+
+### macOS
+
+```bash
+npm install
+python3.12 -m venv .venv-mac
+source .venv-mac/bin/activate
+python -m pip install -r requirements-macos.txt
 npm run dev
 ```
 

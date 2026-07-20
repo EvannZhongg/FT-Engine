@@ -26,21 +26,23 @@ Platform Worker 包含系统原生依赖，Windows 和 macOS 必须使用独立�
 
 ## 开发运行
 
-```bash
-npm install
-python3 -m venv .venv-mac
-source .venv-mac/bin/activate
-python -m pip install -r requirements-macos.txt
-npm run dev
-```
-
-Windows PowerShell：
+### Windows
 
 ```powershell
 npm install
-py -3 -m venv .venv-win
+py -3.12 -m venv .venv-win
 .\.venv-win\Scripts\Activate.ps1
 python -m pip install -r requirements-windows.txt
+npm run dev
+```
+
+### macOS
+
+```bash
+npm install
+python3.12 -m venv .venv-mac
+source .venv-mac/bin/activate
+python -m pip install -r requirements-macos.txt
 npm run dev
 ```
 
