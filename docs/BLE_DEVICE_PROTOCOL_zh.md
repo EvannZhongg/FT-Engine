@@ -33,5 +33,3 @@ uint32 timestamp_ms
 2. `device.connectMany` 为每个绑定建立独立 `BleSession`，连接成功后订阅计数特征通知。
 3. 断线由 Worker 发出 `device.status=error` 并按会话重连；主动停止会取消重连和心跳任务，再发出 `disconnected`。
 4. `device.resetAll` 向每个活动会话写入 `01`，设备产生 reset snapshot 通知，计分会话再按事件顺序持久化。
-
-旧 FastAPI 版本把服务 UUID 和计数特征 UUID 混用。重构后两者在 Worker 中明确分离，避免依赖设备名称的偶然匹配；当前已用 `Counter-4116` 和 `Counter-412E` 完成扫描、双连接、reset、通知和断开验证。
