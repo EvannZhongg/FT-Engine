@@ -15,7 +15,7 @@ FT Engine is a desktop scoring application for electronic referees and competiti
 ## Requirements
 
 - Node.js 22 or newer.
-- Python 3.10 or newer.
+- Python 3.12 or newer.
 - Bluetooth hardware and USB drivers for physical-device development.
 
 The Platform Worker has OS-native dependencies, so Windows and macOS must use separate virtual environments:
