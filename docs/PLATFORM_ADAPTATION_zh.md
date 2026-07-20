@@ -2,7 +2,7 @@
 
 ## 1. 文档目标
 
-本文档集中定义路线 B 重构中的操作系统差异。通用领域、UI、接口和数据模型不在这里重复说明。
+本文档集中定义 FT Engine 桌面端的操作系统差异。通用领域、UI、接口和数据模型不在这里重复说明。
 
 所有平台相关代码、构建配置、权限说明和验收用例必须归入本规范对应的适配层。业务模块和 Vue 页面不得散落 `process.platform`、`sys.platform` 或系统命令判断。
 
@@ -21,6 +21,25 @@
 macOS 第一阶段建议分别构建 arm64 和 x64 安装包，不立即制作 Universal Binary。Python、Bleak 和其他原生依赖需要逐架构验证，强行合并 Universal Binary 会增加签名和依赖合并风险。
 
 最低系统版本最终应根据真实用户设备和 CI 硬件确定，并写入发布配置。未列入支持矩阵的系统不应显示为正式支持。
+
+当前验证状态（2026-07-20）：
+
+- Windows x64 已完成 Worker、BLE/USB、窗口边界和 NSIS 构建链路验证；睡眠恢复、OBS 和正式 Authenticode 发布仍按验收矩阵执行。
+- macOS arm64 已生成 `2.0.2` DMG，并从挂载后的镜像完成主进程、Electron Helper、SQLite 和内嵌 Platform Worker 启动验证。
+- macOS x64 必须在 Intel Mac 或完整的 x86_64 Python/Rosetta 构建环境中单独生成和验证，不能把 arm64 Worker 直接复用到 x64 应用。
+- 当前 macOS 本地产物使用 ad-hoc 签名，只用于开发和实机测试；面向普通用户公开发布前仍必须使用 Developer ID Application、Notarization 和 Stapling。
+
+### 2.1 Python 环境和依赖
+
+Platform Worker 含有系统原生依赖，Windows 与 macOS 必须使用独立虚拟环境，Python 基线为 3.12：
+
+| 范围 | 虚拟环境 | 依赖入口 |
+| --- | --- | --- |
+| 公共依赖 | 不单独创建环境 | `requirements.txt` |
+| Windows | `.venv-win` | `requirements-windows.txt` |
+| macOS | `.venv-mac` | `requirements-macos.txt` |
+
+不得在两个系统之间复制虚拟环境目录、PyInstaller Worker 或 Electron 原生依赖。平台依赖文件通过 `-r requirements.txt` 复用 Bleak、PySerial 和 PyInstaller 等公共依赖。
 
 ## 3. 适配层边界
 
@@ -69,20 +88,19 @@ class WindowTracker(Protocol):
     async def track(self, window_id: str): ...
 ```
 
-建议目录：
+当前目录：
 
 ```text
-workers/local-platform-worker/ft_worker/platform/
+workers/local_platform_worker/ft_worker/platform/
 ├─ contract.py
 ├─ factory.py
+├─ device_adapter.py
 ├─ windows/
-│  ├─ ble.py
-│  ├─ serial.py
-│  └─ windows.py
+│  ├─ device_adapter.py
+│  └─ window_tracker.py
 └─ macos/
-   ├─ ble.py
-   ├─ serial.py
-   └─ windows.py
+   ├─ device_adapter.py
+   └─ window_tracker.py
 ```
 
 只有 `factory.py` 可以读取 `sys.platform`。BLE、USB 和窗口 RPC Handler 只调用协议接口。
@@ -109,7 +127,7 @@ workers/local-platform-worker/ft_worker/platform/
 - 使用 Bleak WinRT backend，不在 Electron Renderer 中使用 Web Bluetooth。
 - 区分“蓝牙关闭”“权限拒绝”“适配器不存在”“目标设备未发现”和“连接超时”。
 - 扫描结果继续支持广播名称、Service UUID、RSSI、设备备注和传输类型。
-- 当前 `clicker_main.c` 固件的 GATT 契约为：Service `2891ae8d-3d45-4fde-814a-5169d0185001`，Counter Characteristic `2891ae8d-3d45-4fde-814a-5169d0185002`，Activation Characteristic `2891ae8d-3d45-4fde-814a-5169d0185003`。
+- 当前 `clicker_main.c` 固件的 GATT 契约为：Service `015018d0-6951-4a81-de4f-453d8dae9128`，Counter Characteristic `025018d0-6951-4a81-de4f-453d8dae9128`，Activation Characteristic `035018d0-6951-4a81-de4f-453d8dae9128`。
 - Counter 通知包含当前总分、事件类型、累计正计数、累计负计数和设备时间戳；桌面层必须先校验长度、整数范围和设备身份，再生成领域事件。
 - Worker 重启后重新建立 WinRT 对象，不复用失效的系统句柄。
 - 保留现有 Windows BLE 心跳策略，并以平台配置注入设备节点。
@@ -226,12 +244,16 @@ workers/local-platform-worker/ft_worker/platform/
 ### 6.7 打包、签名和公证
 
 - arm64 和 x64 分别构建 Electron 应用和 Python Worker。
+- `npm run build:mac` 通过 `scripts/build-mac.sh` 检测当前机器架构；Apple Silicon 生成 arm64，Intel Mac 生成 x64，不在单次构建中混合架构。
+- macOS Worker 使用 `.venv-mac` 和 `requirements-macos.txt` 构建；PyInstaller onedir 中的 Python Framework、动态库、扩展模块和启动器必须作为整体签名。
 - 所有嵌套可执行文件、Framework、动态库和 Worker 按从内到外顺序签名。
 - 主应用启用 Hardened Runtime。
 - 主应用和 Worker 分别配置实际需要的 entitlement，不复制无关权限。
+- 没有 Developer ID Application 证书时，构建脚本使用 ad-hoc 身份逐层签名 Electron Helper、Framework、主应用和 Worker，并使用仅限本地测试的 library-validation 例外；该 entitlement 不得进入正式 Developer ID 发布配置。
 - DMG 发布前完成 Developer ID 签名、Apple Notarization 和 Stapling。
 - 在未安装开发证书的干净设备上验证 Gatekeeper 首次启动。
 - 自动更新产物按架构和发布通道区分，禁止向 arm64 安装 x64 专用更新。
+- 打包验收不能只检查 `codesign --verify`；必须从最终 DMG 挂载目录实际启动应用，并确认主进程、GPU/Renderer Helper 和 Platform Worker 均未发生 dyld Team ID 或 library validation 错误。
 
 ## 7. 平台无关代码约束
 
@@ -284,7 +306,7 @@ workers/local-platform-worker/ft_worker/platform/
 
 ## 9. CI 和构建流水线
 
-Windows 与 macOS 使用独立 Job，不共享已编译的 Python Worker 或 Electron 原生依赖。
+Windows 与 macOS 使用独立 Job、虚拟环境和依赖入口，不共享已编译的 Python Worker 或 Electron 原生依赖。
 
 ```text
 validate-common
@@ -295,6 +317,7 @@ validate-common
 
 build-windows-x64
 ├─ worker-tests-windows
+├─ install-requirements-windows
 ├─ build-worker-x64
 ├─ electron-e2e-windows
 ├─ sign-authenticode
@@ -302,6 +325,7 @@ build-windows-x64
 
 build-macos-arm64 / build-macos-x64
 ├─ worker-tests-macos
+├─ install-requirements-macos
 ├─ build-worker-arch
 ├─ electron-e2e-macos
 ├─ sign-nested-binaries
@@ -309,7 +333,7 @@ build-macos-arm64 / build-macos-x64
 └─ package-dmg
 ```
 
-无签名的开发构建可以用于 CI 功能测试，但不得作为正式更新产物发布。
+ad-hoc 签名的开发构建可以用于 CI 和实机功能测试，但不得作为正式更新产物发布。macOS 测试包也必须保持嵌套签名一致，否则静态校验可能通过而实际启动仍被 dyld 拒绝。
 
 ## 10. 双平台验收矩阵
 
@@ -330,6 +354,14 @@ build-macos-arm64 / build-macos-x64
 | 登录安全存储 | 必测 | 必测 | 必测 |
 
 任一“必测”项失败都阻断对应平台发布，但不应阻断其他已通过平台的内部测试构建。
+
+当前 macOS arm64 自动化与打包证据：
+
+- Node 测试 87/87、Python Worker 测试 21/21、TypeScript 类型检查和 ESLint 通过。
+- 冻结 Worker 的 `system.hello`、空设备扫描和正常关闭协议通过；未授权 Screen Recording 时稳定返回 `screenRecordingPermission: denied`。
+- 主应用和 Worker 均为 arm64，DMG checksum 与 Bundle deep/strict 签名校验通过。
+- 从最终 DMG 挂载路径启动应用后，SQLite 初始化成功，Electron Helper 和 Platform Worker 无 dyld、PyInstaller 或异常退出错误。
+- 真实 BLE/USB 设备、Screen Recording 重新授权、多显示器、睡眠恢复和 OBS 捕获仍需按本矩阵进行实机验收。
 
 ## 11. 平台适配完成定义
 
