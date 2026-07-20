@@ -1,0 +1,2 @@
+-r requirements.txt
+pyobjc-framework-Quartz==12.0

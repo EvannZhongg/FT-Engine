@@ -10,11 +10,14 @@ backend-engine.spec
 local-platform-worker.exe
 local-platform-worker.spec
 local-platform-worker/
+local-platform-worker.app/
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
+.venv-mac/
+.venv-win/
 
 # Local app data
 app_settings.json

@@ -1,14 +1,3 @@
 bleak==2.0.0
 pyserial==3.5
 pyinstaller==6.17.0
-pygetwindow==0.0.9; sys_platform == "win32"
-pyobjc-framework-Quartz==12.0; sys_platform == "darwin"
-winrt-runtime==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Bluetooth==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Bluetooth.Advertisement==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Bluetooth.GenericAttributeProfile==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Enumeration==3.2.1; sys_platform == "win32"
-winrt-Windows.Devices.Radios==3.2.1; sys_platform == "win32"
-winrt-Windows.Foundation==3.2.1; sys_platform == "win32"
-winrt-Windows.Foundation.Collections==3.2.1; sys_platform == "win32"
-winrt-Windows.Storage.Streams==3.2.1; sys_platform == "win32"

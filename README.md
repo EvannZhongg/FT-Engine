@@ -18,13 +18,33 @@ FT Engine is a desktop scoring application for electronic referees and competiti
 - Python 3.10 or newer.
 - Bluetooth hardware and USB drivers for physical-device development.
 
+The Platform Worker has OS-native dependencies, so Windows and macOS must use separate virtual environments:
+
+- Windows: `.venv-win` with `requirements-windows.txt`.
+- macOS: `.venv-mac` with `requirements-macos.txt`.
+- `requirements.txt` contains only shared dependencies. Never copy a virtual environment between operating systems.
+
 ## Development
 
 ```bash
 npm install
-python -m pip install -r requirements.txt
+python3 -m venv .venv-mac
+source .venv-mac/bin/activate
+python -m pip install -r requirements-macos.txt
 npm run dev
 ```
+
+On Windows PowerShell:
+
+```powershell
+npm install
+py -3 -m venv .venv-win
+.\.venv-win\Scripts\Activate.ps1
+python -m pip install -r requirements-windows.txt
+npm run dev
+```
+
+`npm run build:worker:mac` and `npm run build:worker:win` create and use the matching virtual environment automatically.
 
 The application stores local data in SQLite under Electron's user-data directory and does not require a local HTTP or WebSocket service.
 
@@ -35,7 +55,8 @@ npm test
 npm run typecheck
 npm run lint
 npm run build
-python -m unittest discover -s tests
+.venv-mac/bin/python -m unittest discover -s tests  # macOS
+# .\.venv-win\Scripts\python.exe -m unittest discover -s tests  # Windows
 ```
 
 ## Packaging
@@ -48,6 +69,7 @@ npm run build:mac
 ```
 
 Windows packages use NSIS; macOS packages use DMG.
+The macOS build uses a Developer ID Application identity from the keychain when available. Without one, it produces an ad-hoc signed DMG for local testing; public distribution still requires Developer ID signing, notarization, and stapling.
 
 ## Documentation
 

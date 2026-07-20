@@ -71,7 +71,16 @@ export class DesktopWindowManager {
     window.on('ready-to-show', () => {
       if (window.isDestroyed()) return
       window.show()
-      if (!this.dependencies.isDevelopment) this.dependencies.checkForUpdates()
+      if (!this.dependencies.isDevelopment) {
+        try {
+          this.dependencies.checkForUpdates()
+        } catch (error) {
+          console.warn(
+            '[Electron] Update check could not start:',
+            error instanceof Error ? error.message : String(error)
+          )
+        }
+      }
     })
     window.webContents.setWindowOpenHandler((details) => {
       this.dependencies.openExternalUrl(details.url)

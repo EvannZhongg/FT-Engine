@@ -18,16 +18,20 @@ fi
 
 source "$VENV_DIR/bin/activate"
 python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements-macos.txt
 
-rm -rf "${PROJECT_ROOT}/local-platform-worker"
+rm -rf "${PROJECT_ROOT}/local-platform-worker" "${PROJECT_ROOT}/local-platform-worker.app"
 python3 -m PyInstaller --noconsole --onedir --name local-platform-worker --distpath . workers/local_platform_worker/worker_entry.py
 
 ENTITLEMENTS="${PROJECT_ROOT}/resources/entitlements-worker.plist"
-WORKER_EXE="${PROJECT_ROOT}/local-platform-worker/local-platform-worker"
-if [ -f "$ENTITLEMENTS" ] && [ -f "$WORKER_EXE" ]; then
-  codesign --force --sign - --entitlements "$ENTITLEMENTS" "$WORKER_EXE"
+WORKER_DIR="${PROJECT_ROOT}/local-platform-worker"
+if [ -f "$ENTITLEMENTS" ] && [ -d "$WORKER_DIR" ]; then
+  # PyInstaller onedir keeps Python.framework and extension modules beside the
+  # launcher; signing the directory seals all nested native code as one unit.
+  codesign --deep --force --sign - --entitlements "$ENTITLEMENTS" "$WORKER_DIR"
 fi
+
+rm -rf "${PROJECT_ROOT}/local-platform-worker.app"
 
 deactivate
 echo "macOS local platform worker build complete."

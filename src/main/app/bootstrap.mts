@@ -198,7 +198,11 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     stopDeviceSessions,
     openExternalUrl: openAllowedExternalUrl,
-    checkForUpdates: () => autoUpdater.checkForUpdatesAndNotify()
+    checkForUpdates: () => {
+      void autoUpdater.checkForUpdatesAndNotify().catch((error: Error) => {
+        console.warn('[Electron] Update check failed:', error.message)
+      })
+    }
   })
   windowManager = windows
 

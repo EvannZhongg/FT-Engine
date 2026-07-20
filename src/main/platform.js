@@ -11,15 +11,13 @@ function firstExistingPath(candidates) {
 function getDevPythonCommand() {
   const cwd = process.cwd()
   if (isWindows) {
-    const venvPython = join(cwd, '.venv', 'Scripts', 'python.exe')
+    const venvPython = join(cwd, '.venv-win', 'Scripts', 'python.exe')
     return fs.existsSync(venvPython) ? venvPython : 'python'
   }
   const candidates = isMac
     ? [
         join(cwd, '.venv-mac', 'bin', 'python'),
         join(cwd, '.venv-mac', 'bin', 'python3'),
-        join(cwd, '.venv', 'bin', 'python'),
-        join(cwd, '.venv', 'bin', 'python3'),
         'python3',
         'python'
       ]

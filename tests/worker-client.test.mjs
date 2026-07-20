@@ -72,8 +72,10 @@ test('terminates a worker that violates the JSONL protocol', async () => {
 })
 
 const python = process.platform === 'win32'
-  ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
-  : path.join(projectRoot, '.venv', 'bin', 'python')
+  ? path.join(projectRoot, '.venv-win', 'Scripts', 'python.exe')
+  : process.platform === 'darwin'
+    ? path.join(projectRoot, '.venv-mac', 'bin', 'python')
+    : path.join(projectRoot, '.venv', 'bin', 'python')
 
 test('completes a cross-language handshake with the Python worker', {
   skip: !existsSync(python)
@@ -90,7 +92,10 @@ test('completes a cross-language handshake with the Python worker', {
     assert.equal(hello.protocolVersion, 1)
     assert.ok(['windows', 'macos', 'unsupported'].includes(hello.platform))
     assert.equal(typeof hello.capabilities.windowTracking, 'boolean')
-    if (hello.capabilities.windowTracking) {
+    if (
+      hello.capabilities.windowTracking &&
+      ['granted', 'notRequired'].includes(hello.capabilities.screenRecordingPermission)
+    ) {
       const result = await client.request('window.list')
       assert.ok(Array.isArray(result.windows))
       for (const window of result.windows) {
