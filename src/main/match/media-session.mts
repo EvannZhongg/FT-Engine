@@ -9,6 +9,8 @@ import type {
 import { mediaKey } from '../../shared/media/media-contract.mts'
 import { MatchSessionError } from './match-session-error.mts'
 
+const PLAYBACK_FRESHNESS_MS = 250
+
 export type MatchMediaStatus =
   | 'not_ready'
   | 'aligned'
@@ -349,7 +351,7 @@ export class MatchMediaSession {
     const anchor = this.playbackAnchor
     if (!anchor) return bindingCapture(active.binding, null, 'not_ready')
     const ageMs = Math.max(0, this.monotonicNow() - anchor.received_at_monotonic_ms)
-    if (ageMs > 500) return bindingCapture(active.binding, null, 'stale')
+    if (ageMs > PLAYBACK_FRESHNESS_MS) return bindingCapture(active.binding, null, 'stale')
     if (anchor.state === 'buffering' || anchor.state === 'not_ready') {
       return bindingCapture(active.binding, null, 'not_ready')
     }

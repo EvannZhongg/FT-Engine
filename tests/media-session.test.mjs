@@ -66,9 +66,9 @@ test('uses a bound playback session and monotonic freshness window', () => {
   })
   assert.equal(media.capture({ ...context, contestantName: 'Bob' }).status, 'context_mismatch')
 
-  now = 1500
+  now = 1250
   assert.equal(media.capture(context).status, 'aligned')
-  now = 1501
+  now = 1251
   assert.equal(media.capture(context).status, 'stale')
   media.reset()
   assert.equal(media.capture(context).status, 'not_ready')
@@ -280,13 +280,13 @@ test('uses paused positions without extrapolation and applies playback rate whil
   })
   const playback = media.beginPlayback(context, current.version_id)
   media.updatePlayback(snapshot(playback, { state: 'paused', position_ms: 3000 }), context)
-  now = 1400
+  now = 1200
   assert.equal(media.capture(context).mediaTimeMs, 3000)
   media.updatePlayback(
     snapshot(playback, { sequence: 2, state: 'playing', position_ms: 3000, playback_rate: 2 }),
     context
   )
-  now = 1500
+  now = 1300
   assert.equal(media.capture(context).mediaTimeMs, 3200)
 })
 
