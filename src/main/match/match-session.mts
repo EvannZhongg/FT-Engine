@@ -9,7 +9,12 @@ import type {
   MatchScoreEventWrite,
   MatchScoreEventWriteResult
 } from '../persistence/local-database.mts'
-import type { YouTubeMediaBinding } from '../../shared/media/youtube.mts'
+import type {
+  ContextTransitionInput,
+  ContextTransitionResult,
+  MediaBinding,
+  ParsedMediaUrl
+} from '../../shared/media/media-contract.mts'
 import {
   MatchDeviceSession,
   type MatchDeviceBinding,
@@ -79,12 +84,24 @@ interface MatchSessionDependencies {
   emitRefereeUpdate: (update: MatchRefereeUpdate) => void
   emitContextUpdate?: (context: { groupName: string; contestantName: string }) => void
   emitStatusUpdate?: (status: MatchStatusUpdate) => void
-  upsertMediaBinding?: (
+  replaceMediaBinding?: (
     sourceKey: string,
     stageId: string,
     groupName: string,
     contestantName: string,
-    binding: { provider: string; mediaId: string; canonicalUrl: string }
+    binding: ParsedMediaUrl
+  ) => MediaBinding | null
+  getMediaBinding?: (
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    contestantName: string
+  ) => MediaBinding | null
+  removeMediaBinding?: (
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    contestantName: string
   ) => boolean
   onError?: (code: string, error?: unknown) => void
   now?: () => Date
@@ -123,7 +140,9 @@ export class MatchSessionService {
     this.dependencies = dependencies
     this.deviceSession = new MatchDeviceSession({ requestWorker: dependencies.requestWorker })
     this.mediaSession = new MatchMediaSession({
-      upsertMediaBinding: dependencies.upsertMediaBinding,
+      replaceMediaBinding: dependencies.replaceMediaBinding,
+      getMediaBinding: dependencies.getMediaBinding,
+      removeMediaBinding: dependencies.removeMediaBinding,
       monotonicNow: dependencies.monotonicNow
     })
     this.notifier = new MatchSessionNotifier({
@@ -284,10 +303,20 @@ export class MatchSessionService {
     }
   }
 
-  async setContext(groupName: string, contestantName: string): Promise<void> {
+  async transitionContext(input: ContextTransitionInput): Promise<ContextTransitionResult> {
+    const { group_name: groupName, contestant_name: contestantName } = input
     validateContext(groupName, contestantName)
+    if (
+      (input.progress_mode !== 'continue' && input.progress_mode !== 'reset') ||
+      (input.binding_version_id !== null && !boundedString(input.binding_version_id, 256)) ||
+      (input.expected_media_key !== null && !boundedString(input.expected_media_key, 1024))
+    ) {
+      throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'Media transition input is invalid')
+    }
     this.requireActive()
-    if (groupName === this.groupName && contestantName === this.contestantName) return
+    if (groupName === this.groupName && contestantName === this.contestantName) {
+      throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'Target context is already active')
+    }
     if (
       this.dependencies.validateContext &&
       !this.dependencies.validateContext(
@@ -307,7 +336,23 @@ export class MatchSessionService {
 
     const operationVersion = this.operationVersion
     this.controlOperationPending = true
+    let targetMedia: ReturnType<MatchMediaSession['prepareTransition']> | null = null
+    let contextTransitioned = false
     try {
+      targetMedia = this.mediaSession.prepareTransition(
+        this.currentMediaContext(),
+        {
+          sourceKey: this.sourceKey,
+          stageId: this.stageId,
+          groupName,
+          contestantName
+        },
+        input.binding_version_id,
+        input.progress_mode,
+        input.expected_media_key
+      )
+      this.media = 'not_ready'
+      this.publishStatus()
       await this.deviceSession.resetAll()
       this.assertCurrentOperation(operationVersion)
       this.dependencies.transitionContext?.(
@@ -321,15 +366,38 @@ export class MatchSessionService {
         },
         this.now().toISOString()
       )
+      contextTransitioned = true
       this.groupName = groupName
       this.contestantName = contestantName
       for (const runtime of this.referees.values()) {
         runtime.scoring = resetRefereeScoringState(runtime.scoring)
         this.emitReferee(runtime)
       }
+      const playback = targetMedia.binding
+        ? this.mediaSession.beginPlayback(
+            this.currentMediaContext(),
+            targetMedia.binding.version_id
+          )
+        : null
       this.media = this.mediaSession.capture(this.currentMediaContext()).status
+      this.mediaSession.commitTransition()
       this.emitContext({ groupName, contestantName })
       this.publishStatus()
+      return {
+        group_name: groupName,
+        contestant_name: contestantName,
+        binding: targetMedia.binding,
+        playback_session_id: playback?.playback_session_id ?? null,
+        progress_mode: input.progress_mode,
+        continuity_position_ms: targetMedia.continuityPositionMs
+      }
+    } catch (error) {
+      if (!contextTransitioned && targetMedia) {
+        this.mediaSession.rollbackTransition()
+        this.media = this.mediaSession.capture(this.currentMediaContext()).status
+        this.publishStatus()
+      }
+      throw error
     } finally {
       this.controlOperationPending = false
     }
@@ -370,20 +438,60 @@ export class MatchSessionService {
     return true
   }
 
-  updatePlayback(value: Record<string, unknown>): void {
+  beginPlayback(bindingVersionId: string): ReturnType<MatchMediaSession['beginPlayback']> {
+    this.requireActive()
+    if (!boundedString(bindingVersionId, 256)) {
+      throw new MatchSessionError('MEDIA_BINDING_VERSION_CONFLICT', 'Binding version is invalid')
+    }
+    const playback = this.mediaSession.beginPlayback(this.currentMediaContext(), bindingVersionId)
+    this.media = this.mediaSession.capture(this.currentMediaContext()).status
+    this.publishStatus()
+    return playback
+  }
+
+  updatePlayback(value: Record<string, unknown>): MatchStatusUpdate['media'] {
     this.requireActive()
     this.media = this.mediaSession.updatePlayback(value, this.currentMediaContext())
     this.publishStatus()
+    return this.media
   }
 
-  setMediaBinding(groupName: string, contestantName: string, url: string): YouTubeMediaBinding {
+  reportMediaError(value: Record<string, unknown>): MatchStatusUpdate['media'] {
     this.requireActive()
-    return this.mediaSession.setMediaBinding(
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new MatchSessionError('MEDIA_PLAYBACK_INVALID', 'Playback error is invalid')
+    }
+    this.media = this.mediaSession.reportPlaybackError(value, this.currentMediaContext())
+    this.publishStatus()
+    return this.media
+  }
+
+  getMediaBinding(groupName: string, contestantName: string): MediaBinding | null {
+    this.requireActive()
+    return this.mediaSession.getBinding(this.currentMediaContext(), groupName, contestantName)
+  }
+
+  replaceMediaBinding(
+    groupName: string,
+    contestantName: string,
+    parsed: ParsedMediaUrl
+  ): MediaBinding {
+    this.requireActive()
+    return this.mediaSession.replaceBinding(
       this.currentMediaContext(),
       groupName,
       contestantName,
-      url
+      parsed
     )
+  }
+
+  removeMediaBinding(groupName: string, contestantName: string): void {
+    this.requireActive()
+    this.mediaSession.removeBinding(this.currentMediaContext(), groupName, contestantName)
+    if (groupName === this.groupName && contestantName === this.contestantName) {
+      this.media = 'not_ready'
+      this.publishStatus()
+    }
   }
 
   handleWorkerEvent(message: unknown): void {
@@ -470,8 +578,10 @@ export class MatchSessionService {
           totalMinus: next.score.minus,
           currentTotal: next.score.total,
           majorPenalty: next.score.penalty,
+          mediaBindingVersionId: media.bindingVersionId,
           mediaProvider: media.provider,
           mediaId: media.mediaId,
+          mediaSegment: media.segment,
           mediaTimeMs: media.mediaTimeMs,
           mediaSyncStatus: media.status
         }
@@ -693,4 +803,8 @@ function stringValue(value: unknown): string {
 
 function integerValue(value: unknown): number {
   return Number.isSafeInteger(value) ? Number(value) : Number.NaN
+}
+
+function boundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength
 }

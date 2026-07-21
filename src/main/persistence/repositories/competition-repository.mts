@@ -92,10 +92,12 @@ export class CompetitionRepository {
       .prepare(
         `
       SELECT g.name AS group_name, p.name AS contestant_name,
-        mb.provider, mb.media_id, mb.canonical_url
+        mb.id, mb.contestant_id, mb.current_version_id, mb.updated_at,
+        mv.revision, mv.provider, mv.media_id, mv.segment, mv.canonical_url
       FROM competition_groups g
       JOIN contestants p ON p.group_id = g.id
       JOIN media_bindings mb ON mb.contestant_id = p.id
+      JOIN media_binding_versions mv ON mv.id = mb.current_version_id
       WHERE g.stage_id = ?
     `
       )
@@ -104,9 +106,15 @@ export class CompetitionRepository {
     for (const row of mediaRows) {
       media[row.group_name] ??= {}
       media[row.group_name][row.contestant_name] = {
-        provider: row.provider,
-        video_id: row.media_id,
-        canonical_url: row.canonical_url
+        id: row.id,
+        contestant_id: row.contestant_id,
+        version_id: row.current_version_id,
+        revision: Number(row.revision),
+        provider: row.provider === 'bilibili' ? 'bilibili' : 'youtube',
+        media_id: row.media_id,
+        segment: row.segment,
+        canonical_url: row.canonical_url,
+        updated_at: row.updated_at
       }
     }
     return {

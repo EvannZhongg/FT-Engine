@@ -34,7 +34,9 @@ export class ExportQuery {
           `
         SELECT g.name AS group_name, p.name AS contestant_name,
           r.referee_index, e.event_id, e.system_time, e.total_plus,
-          e.total_minus, e.current_total, e.major_penalty
+          e.total_minus, e.current_total, e.major_penalty,
+          e.media_binding_version_id, e.media_provider, e.media_id,
+          e.media_segment, e.media_time_ms, e.media_sync_status
         FROM score_events e
         JOIN match_sessions ms ON ms.id = e.match_session_id
         JOIN contestants p ON p.id = ms.contestant_id
@@ -59,7 +61,14 @@ export class ExportQuery {
           totalPlus: Number(row.total_plus),
           totalMinus: Number(row.total_minus),
           currentTotal: Number(row.current_total),
-          majorPenalty: Number(row.major_penalty)
+          majorPenalty: Number(row.major_penalty),
+          mediaBindingVersionId:
+            row.media_binding_version_id === null ? null : String(row.media_binding_version_id),
+          mediaProvider: String(row.media_provider),
+          mediaId: String(row.media_id),
+          mediaSegment: String(row.media_segment),
+          mediaTimeMs: row.media_time_ms === null ? null : Number(row.media_time_ms),
+          mediaSyncStatus: String(row.media_sync_status)
         })
         events.set(key, values)
       }

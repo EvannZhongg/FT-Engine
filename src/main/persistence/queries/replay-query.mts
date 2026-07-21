@@ -1,5 +1,10 @@
 import { resolveContestant } from '../sqlite/competition-context.mts'
 import type { SqliteConnection } from '../sqlite/connection.mts'
+import type {
+  MediaBinding,
+  MediaBindingVersion,
+  MediaProvider
+} from '../../../shared/media/media-contract.mts'
 
 export interface ReplayEvent {
   event_id: string
@@ -18,6 +23,8 @@ export interface ReplayEvent {
   current_total: number
   media_provider: string
   media_id: string
+  media_segment: string
+  media_binding_version_id: string | null
   media_time_ms: number | null
   media_sync_status: string
 }
@@ -60,7 +67,8 @@ export class ReplayQuery {
     contestantName: string
   ): {
     status: 'ok'
-    binding: { provider: string; video_id: string; canonical_url: string } | null
+    binding: MediaBinding | null
+    binding_versions: MediaBindingVersion[]
     events: ReplayEvent[]
   } | null {
     const database = this.connection.requireDatabase()
@@ -69,13 +77,25 @@ export class ReplayQuery {
     const bindingRow = database
       .prepare(
         `
-      SELECT provider, media_id, canonical_url
-      FROM media_bindings WHERE contestant_id = ? LIMIT 1
+      SELECT mb.id, mb.contestant_id, mb.current_version_id, mb.updated_at,
+        mv.revision, mv.provider, mv.media_id, mv.segment, mv.canonical_url
+      FROM media_bindings mb
+      JOIN media_binding_versions mv ON mv.id = mb.current_version_id
+      WHERE mb.contestant_id = ?
     `
       )
-      .get(contestant.id) as
-      | { provider: string; media_id: string; canonical_url: string }
-      | undefined
+      .get(contestant.id) as Record<string, string | number> | undefined
+    const versionRows = database
+      .prepare(
+        `SELECT DISTINCT mv.id, mv.contestant_id, mv.revision, mv.provider,
+          mv.media_id, mv.segment, mv.canonical_url, mv.created_at
+         FROM media_binding_versions mv
+         JOIN score_events e ON e.media_binding_version_id = mv.id
+         JOIN match_sessions ms ON ms.id = e.match_session_id
+         WHERE ms.contestant_id = ?
+         ORDER BY mv.revision, mv.created_at, mv.id`
+      )
+      .all(contestant.id) as Array<Record<string, string | number>>
     const rows = database
       .prepare(
         `
@@ -114,6 +134,9 @@ export class ReplayQuery {
         current_total: Number(row.current_total),
         media_provider: String(row.media_provider),
         media_id: String(row.media_id),
+        media_segment: String(row.media_segment),
+        media_binding_version_id:
+          row.media_binding_version_id === null ? null : String(row.media_binding_version_id),
         media_time_ms: row.media_time_ms === null ? null : Number(row.media_time_ms),
         media_sync_status: String(row.media_sync_status)
       }
@@ -122,12 +145,32 @@ export class ReplayQuery {
       status: 'ok',
       binding: bindingRow
         ? {
-            provider: bindingRow.provider,
-            video_id: bindingRow.media_id,
-            canonical_url: bindingRow.canonical_url
+            id: String(bindingRow.id),
+            contestant_id: String(bindingRow.contestant_id),
+            version_id: String(bindingRow.current_version_id),
+            revision: Number(bindingRow.revision),
+            provider: provider(bindingRow.provider),
+            media_id: String(bindingRow.media_id),
+            segment: String(bindingRow.segment),
+            canonical_url: String(bindingRow.canonical_url),
+            updated_at: String(bindingRow.updated_at)
           }
         : null,
+      binding_versions: versionRows.map((row) => ({
+        id: String(row.id),
+        contestant_id: String(row.contestant_id),
+        revision: Number(row.revision),
+        provider: provider(row.provider),
+        media_id: String(row.media_id),
+        segment: String(row.segment),
+        canonical_url: String(row.canonical_url),
+        created_at: String(row.created_at)
+      })),
       events
     }
   }
+}
+
+function provider(value: unknown): MediaProvider {
+  return value === 'bilibili' ? 'bilibili' : 'youtube'
 }

@@ -13,6 +13,7 @@ import {
   ExportService
 } from '../src/main/application/exports/export-service.mts'
 import { LocalDatabase } from '../src/main/persistence/local-database.mts'
+import { normalizeMediaUrl } from '../src/shared/media/normalize-media-url.mts'
 
 const roots = []
 
@@ -84,9 +85,17 @@ function createFixture() {
 
 function appendEvent(database, sourceKey, values) {
   const systemTime = values.systemTime
+  const stageId = values.stageId || database.listStages(sourceKey)[0].id
+  const currentBinding = database.getMediaBinding(
+    sourceKey,
+    stageId,
+    values.groupName,
+    values.contestantName
+  )
+  const aligned = values.mediaSyncStatus === 'aligned'
   const result = database.appendMatchScoreEvent({
     sourceKey,
-    stageId: values.stageId || database.listStages(sourceKey)[0].id,
+    stageId,
     groupName: values.groupName,
     contestantName: values.contestantName,
     attemptNumber: values.attemptNumber ?? 1,
@@ -103,13 +112,34 @@ function appendEvent(database, sourceKey, values) {
       totalPlus: values.totalPlus,
       totalMinus: values.totalMinus,
       currentTotal: values.currentTotal,
-      majorPenalty: values.majorPenalty
+      majorPenalty: values.majorPenalty,
+      mediaBindingVersionId: values.mediaBindingVersionId ?? currentBinding?.version_id ?? null,
+      mediaProvider: values.mediaProvider ?? currentBinding?.provider ?? '',
+      mediaId: values.mediaId ?? currentBinding?.media_id ?? '',
+      mediaSegment: values.mediaSegment ?? currentBinding?.segment ?? '',
+      mediaTimeMs: values.mediaTimeMs ?? (aligned ? values.deviceTimestampMs : null),
+      mediaSyncStatus: values.mediaSyncStatus ?? 'not_ready'
     }
   })
   assert.deepEqual(result, { status: 'inserted' })
 }
 
 function seedScores(fixture) {
+  const stageId = fixture.database.listStages(fixture.competition.id)[0].id
+  const video = normalizeMediaUrl('https://youtu.be/dQw4w9WgXcQ')
+  for (const [groupName, contestantName] of [
+    ['Final', 'Alice, Jr'],
+    ['Final', 'Bob'],
+    ['Qualifier', 'Casey']
+  ]) {
+    fixture.database.replaceMediaBinding(
+      fixture.competition.id,
+      stageId,
+      groupName,
+      contestantName,
+      video
+    )
+  }
   const base = {
     sourceKey: fixture.competition.id,
     groupName: 'Final',
@@ -117,7 +147,8 @@ function seedScores(fixture) {
     refereeIndex: 1,
     refereeName: 'Judge One',
     refereeMode: 'SINGLE',
-    majorPenalty: 0
+    majorPenalty: 0,
+    mediaSyncStatus: 'aligned'
   }
   appendEvent(fixture.database, fixture.competition.id, {
     ...base,
@@ -223,7 +254,7 @@ test('builds scoped CSV and SRT files from one SQLite competition snapshot', () 
       'Final/Alice, Jr/Ref1_REALTIME.srt'
     ])
     const csv = strFromU8(files['Final/Alice, Jr/Ref1_Log.csv'])
-    assert.match(csv, /Timestamp,Plus,Minus,Total,MajorPenalty/)
+    assert.match(csv, /Timestamp,Plus,Minus,Total,MajorPenalty,media_binding_version_id/)
     assert.match(csv, /0\.200,2,0,2,0/)
     const srt = strFromU8(files['Final/Alice, Jr/Ref1_REALTIME.srt'])
     assert.match(srt, /00:00:00,000 --> 00:00:01,200/)
@@ -257,6 +288,64 @@ test('supports whole-competition and referee scopes from SQLite', () => {
   }
 })
 
+test('keeps SRT files separate when one referee has multiple binding versions', () => {
+  const event = (version, mediaId, time, total) => ({
+    eventId: `${version}-${time}`,
+    systemTime: `2026-07-18T10:00:${String(time / 1000).padStart(2, '0')}.000Z`,
+    totalPlus: total,
+    totalMinus: 0,
+    currentTotal: total,
+    majorPenalty: 0,
+    mediaBindingVersionId: version,
+    mediaProvider: 'youtube',
+    mediaId,
+    mediaSegment: '',
+    mediaTimeMs: time,
+    mediaSyncStatus: 'aligned'
+  })
+  const service = new ExportService(
+    {
+      getSnapshot: () => ({
+        sourceKey: 'shared',
+        competitionName: 'Shared',
+        groups: [
+          {
+            name: 'Final',
+            refCount: 1,
+            contestants: [
+              {
+                name: 'Alice',
+                referees: [
+                  {
+                    index: 1,
+                    name: 'Judge A',
+                    mode: 'SINGLE',
+                    events: [
+                      event('version-a', 'dQw4w9WgXcQ', 1000, 1),
+                      event('version-b', 'aqz-KE-bpKQ', 2000, 2)
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+    },
+    { write: async () => {} }
+  )
+  const artifact = service.buildDetails({
+    scope: { sourceKey: 'shared' },
+    includeCsv: false,
+    includeSrt: true,
+    srtMode: 'TOTAL'
+  })
+  assert.deepEqual(Object.keys(unzipSync(artifact.data)).sort(), [
+    'Final/Alice/Ref1_TOTAL_version-a.srt',
+    'Final/Alice/Ref1_TOTAL_version-b.srt'
+  ])
+})
+
 test('generates raw and scaled report CSV with escaping and dual-referee penalties', () => {
   const fixture = createFixture()
   try {
@@ -288,7 +377,7 @@ test('generates raw and scaled report CSV with escaping and dual-referee penalti
   }
 })
 
-test('keeps SRT timing on system timestamps and rejects empty detail scopes', () => {
+test('keeps SRT timing on aligned media timestamps and rejects empty detail scopes', () => {
   const events = [
     {
       eventId: 'one',
@@ -296,7 +385,13 @@ test('keeps SRT timing on system timestamps and rejects empty detail scopes', ()
       totalPlus: 1,
       totalMinus: 0,
       currentTotal: 1,
-      majorPenalty: 0
+      majorPenalty: 0,
+      mediaBindingVersionId: 'version-1',
+      mediaProvider: 'youtube',
+      mediaId: 'dQw4w9WgXcQ',
+      mediaSegment: '',
+      mediaTimeMs: 1000,
+      mediaSyncStatus: 'aligned'
     },
     {
       eventId: 'two',
@@ -304,10 +399,16 @@ test('keeps SRT timing on system timestamps and rejects empty detail scopes', ()
       totalPlus: 2,
       totalMinus: 0,
       currentTotal: 2,
-      majorPenalty: 0
+      majorPenalty: 0,
+      mediaBindingVersionId: 'version-1',
+      mediaProvider: 'youtube',
+      mediaId: 'dQw4w9WgXcQ',
+      mediaSegment: '',
+      mediaTimeMs: 1250,
+      mediaSyncStatus: 'aligned'
     }
   ]
-  assert.match(buildSrt(events, 'TOTAL'), /00:00:00,000 --> 00:00:00,250/)
+  assert.match(buildSrt(events, 'TOTAL'), /00:00:01,000 --> 00:00:01,250/)
   assert.match(buildLogCsv(events), /0\.250,2,0,2,0/)
 
   const fixture = createFixture()

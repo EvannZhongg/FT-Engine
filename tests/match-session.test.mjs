@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { MatchSessionService } from '../src/main/match/match-session.mts'
+import { mediaKey } from '../src/shared/media/media-contract.mts'
+import { normalizeMediaUrl } from '../src/shared/media/normalize-media-url.mts'
 
 function defaultWorkerResult(method, params) {
   if (method === 'device.connectMany') {
@@ -20,6 +22,7 @@ function createFixture() {
   const events = []
   const errors = []
   const mediaBindings = []
+  const bindings = new Map()
   const progress = []
   let monotonicMs = 1000
   let workerImplementation = async (method, params) => defaultWorkerResult(method, params)
@@ -28,6 +31,8 @@ function createFixture() {
     return { status: 'inserted' }
   }
   let contextImplementation = () => true
+  let transitionImplementation = (current, next, occurredAt) =>
+    progress.push({ type: 'transition', current, next, occurredAt })
   const service = new MatchSessionService({
     requestWorker: async (method, params = {}) => {
       workerCalls.push({ method, params })
@@ -37,16 +42,45 @@ function createFixture() {
     activateContext: (context, occurredAt) =>
       progress.push({ type: 'activate', context, occurredAt }),
     transitionContext: (current, next, occurredAt) =>
-      progress.push({ type: 'transition', current, next, occurredAt }),
+      transitionImplementation(current, next, occurredAt),
     completeContext: (context, occurredAt) =>
       progress.push({ type: 'complete', context, occurredAt }),
     invalidateContext: (context, occurredAt) =>
       progress.push({ type: 'invalidate', context, occurredAt }),
     validateContext: (...args) => contextImplementation(...args),
-    upsertMediaBinding: (...args) => {
+    replaceMediaBinding: (...args) => {
       mediaBindings.push(args)
-      return true
+      const [sourceKey, , groupName, contestantName, parsed] = args
+      const key = `${groupName}:${contestantName}`
+      const current = bindings.get(key)
+      if (
+        current &&
+        current.provider === parsed.provider &&
+        current.media_id === parsed.media_id &&
+        current.segment === parsed.segment &&
+        current.canonical_url === parsed.canonical_url
+      ) {
+        return current
+      }
+      const revision = (current?.revision || 0) + 1
+      const binding = {
+        id: `${sourceKey}-${groupName}-${contestantName}`,
+        contestant_id: `${groupName}-${contestantName}`,
+        version_id: `${groupName}-${contestantName}-v${revision}`,
+        revision,
+        provider: parsed.provider,
+        media_id: parsed.media_id,
+        segment: parsed.segment,
+        canonical_url: parsed.canonical_url,
+        updated_at: '2026-07-18T12:00:00.000Z'
+      }
+      bindings.set(key, binding)
+      return binding
     },
+    getMediaBinding: (_sourceKey, _stageId, groupName, contestantName) =>
+      bindings.get(`${groupName}:${contestantName}`) || null,
+    removeMediaBinding: (_sourceKey, _stageId, groupName, contestantName) =>
+      bindings.delete(`${groupName}:${contestantName}`),
     emitRefereeUpdate: (update) => updates.push(update),
     emitContextUpdate: (context) => contexts.push(context),
     emitStatusUpdate: (status) => statuses.push(status),
@@ -75,6 +109,9 @@ function createFixture() {
     },
     setContextImplementation: (implementation) => {
       contextImplementation = implementation
+    },
+    setTransitionImplementation: (implementation) => {
+      transitionImplementation = implementation
     }
   }
 }
@@ -148,9 +185,18 @@ test('rejects unconfigured contexts before controlling devices', async () => {
   fixture.setContextImplementation(() => true)
   await fixture.service.start(startInput)
   fixture.setContextImplementation(() => false)
-  await assert.rejects(fixture.service.setContext('Final', 'Bob'), {
-    code: 'MATCH_CONTEXT_INVALID'
-  })
+  await assert.rejects(
+    fixture.service.transitionContext({
+      group_name: 'Final',
+      contestant_name: 'Bob',
+      binding_version_id: null,
+      progress_mode: 'reset',
+      expected_media_key: null
+    }),
+    {
+      code: 'MATCH_CONTEXT_INVALID'
+    }
+  )
   assert.equal(
     fixture.workerCalls.some((call) => call.method === 'device.resetAll'),
     false
@@ -201,8 +247,10 @@ test('persists an event before publishing its score', async () => {
       totalMinus: 3,
       currentTotal: 2,
       majorPenalty: 6,
+      mediaBindingVersionId: null,
       mediaProvider: '',
       mediaId: '',
+      mediaSegment: '',
       mediaTimeMs: null,
       mediaSyncStatus: 'not_ready'
     }
@@ -271,10 +319,16 @@ test('keeps in-flight events on the old contestant while switching context', asy
     return defaultWorkerResult(method, params)
   })
 
-  const switching = fixture.service.setContext('Final', 'Bob')
-  await assert.rejects(fixture.service.setContext('Final', 'Charlie'), {
-    code: 'MATCH_OPERATION_IN_PROGRESS'
-  })
+  const transition = (contestantName) =>
+    fixture.service.transitionContext({
+      group_name: 'Final',
+      contestant_name: contestantName,
+      binding_version_id: null,
+      progress_mode: 'reset',
+      expected_media_key: null
+    })
+  const switching = transition('Bob')
+  await assert.rejects(transition('Charlie'), { code: 'MATCH_OPERATION_IN_PROGRESS' })
   fixture.service.handleWorkerEvent(counterEvent({ eventId: 'alice-final-event' }))
   assert.equal(fixture.events.at(-1).contestantName, 'Alice')
 
@@ -285,6 +339,50 @@ test('keeps in-flight events on the old contestant while switching context', asy
   assert.equal(fixture.progress.at(-1).next.contestantName, 'Bob')
   assert.deepEqual(fixture.contexts.at(-1), { groupName: 'Final', contestantName: 'Bob' })
   assert.deepEqual(fixture.updates.at(-1).score, { total: 0, plus: 0, minus: 0, penalty: 0 })
+})
+
+test('restores the active playback session when a context transition fails', async () => {
+  const fixture = createFixture()
+  await fixture.service.start(startInput)
+  const binding = fixture.service.replaceMediaBinding(
+    'Final',
+    'Alice',
+    normalizeMediaUrl('https://youtu.be/dQw4w9WgXcQ')
+  )
+  const playback = fixture.service.beginPlayback(binding.version_id)
+  const snapshot = {
+    playback_session_id: playback.playback_session_id,
+    binding_version_id: binding.version_id,
+    provider: binding.provider,
+    media_id: binding.media_id,
+    segment: binding.segment,
+    position_ms: 4500,
+    duration_ms: 10000,
+    state: 'paused',
+    playback_rate: 1
+  }
+  fixture.service.updatePlayback({ ...snapshot, sequence: 1 })
+  fixture.setTransitionImplementation(() => {
+    throw new Error('MATCH_STATE_CONFLICT')
+  })
+
+  await assert.rejects(
+    fixture.service.transitionContext({
+      group_name: 'Final',
+      contestant_name: 'Bob',
+      binding_version_id: null,
+      progress_mode: 'reset',
+      expected_media_key: null
+    }),
+    /MATCH_STATE_CONFLICT/
+  )
+
+  assert.deepEqual(fixture.contexts, [])
+  assert.equal(fixture.service.getStatus().media, 'aligned')
+  assert.equal(fixture.service.updatePlayback({ ...snapshot, sequence: 2 }), 'aligned')
+  fixture.service.handleWorkerEvent(counterEvent({ eventId: 'after-failed-transition' }))
+  assert.equal(fixture.events.at(-1).contestantName, 'Alice')
+  assert.equal(fixture.events.at(-1).event.mediaBindingVersionId, binding.version_id)
 })
 
 test('completes only an active persisted context', async () => {
@@ -366,30 +464,36 @@ test('rejects duplicate device bindings before connecting', async () => {
 test('captures a fresh playback anchor and persists media bindings', async () => {
   const fixture = createFixture()
   await fixture.service.start(startInput)
-  assert.deepEqual(
-    fixture.service.setMediaBinding('Final', 'Alice', 'https://youtu.be/dQw4w9WgXcQ?si=demo'),
-    {
-      provider: 'youtube',
-      video_id: 'dQw4w9WgXcQ',
-      canonical_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-    }
-  )
+  const parsed = normalizeMediaUrl('https://youtu.be/dQw4w9WgXcQ?si=demo')
+  const binding = fixture.service.replaceMediaBinding('Final', 'Alice', parsed)
+  assert.deepEqual(binding, {
+    id: `${startInput.sourceKey}-Final-Alice`,
+    contestant_id: 'Final-Alice',
+    version_id: 'Final-Alice-v1',
+    revision: 1,
+    provider: 'youtube',
+    media_id: 'dQw4w9WgXcQ',
+    segment: '',
+    canonical_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    updated_at: '2026-07-18T12:00:00.000Z'
+  })
   assert.deepEqual(fixture.mediaBindings[0], [
     startInput.sourceKey,
     startInput.stageId,
     'Final',
     'Alice',
-    {
-      provider: 'youtube',
-      mediaId: 'dQw4w9WgXcQ',
-      canonicalUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-    }
+    parsed
   ])
+  const playback = fixture.service.beginPlayback(binding.version_id)
   fixture.service.updatePlayback({
-    group: 'Final',
-    contestant: 'Alice',
-    video_id: 'dQw4w9WgXcQ',
-    video_time_ms: 4500,
+    playback_session_id: playback.playback_session_id,
+    binding_version_id: binding.version_id,
+    sequence: 1,
+    provider: binding.provider,
+    media_id: binding.media_id,
+    segment: binding.segment,
+    position_ms: 4500,
+    duration_ms: 10000,
     state: 'playing',
     playback_rate: 1
   })
@@ -410,15 +514,18 @@ test('captures a fresh playback anchor and persists media bindings', async () =>
     {
       provider: fixture.events[0].event.mediaProvider,
       mediaId: fixture.events[0].event.mediaId,
+      bindingVersionId: fixture.events[0].event.mediaBindingVersionId,
       mediaTimeMs: fixture.events[0].event.mediaTimeMs,
       status: fixture.events[0].event.mediaSyncStatus
     },
     {
       provider: 'youtube',
       mediaId: 'dQw4w9WgXcQ',
+      bindingVersionId: binding.version_id,
       mediaTimeMs: 4700,
       status: 'aligned'
     }
   )
+  assert.equal(mediaKey(binding), 'youtube:dQw4w9WgXcQ:')
   assert.equal(fixture.service.getStatus().media, 'aligned')
 })

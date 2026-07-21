@@ -1,5 +1,6 @@
 export type CompetitionMode = 'FREE' | 'TOURNAMENT'
 export type CompetitionRefereeMode = 'SINGLE' | 'DUAL'
+import type { MediaBinding } from '../media/media-contract.mts'
 
 export interface CompetitionRefereeConfig {
   index: number
@@ -22,10 +23,7 @@ export interface CompetitionConfig {
   mode: CompetitionMode
   createdAt: string
   groups: CompetitionGroupConfig[]
-  media: Record<
-    string,
-    Record<string, { provider: string; video_id: string; canonical_url: string }>
-  >
+  media: Record<string, Record<string, MediaBinding>>
 }
 
 export type CompetitionListItem = CompetitionConfig

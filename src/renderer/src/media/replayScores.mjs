@@ -1,4 +1,4 @@
-export function buildReplayScores(events, refereeConfigs, videoId, playbackTimeMs) {
+export function buildReplayScores(events, refereeConfigs, bindingVersionId, playbackTimeMs) {
   const configurations = new Map(
     (refereeConfigs || []).map((referee) => [Number(referee.index), referee])
   )
@@ -16,12 +16,15 @@ export function buildReplayScores(events, refereeConfigs, videoId, playbackTimeM
         Number(event.referee_index) === index &&
         event.media_sync_status === 'aligned' &&
         event.media_time_ms != null &&
-        event.media_id === videoId &&
+        event.media_binding_version_id === bindingVersionId &&
         event.media_time_ms <= playbackTimeMs
     )
     const latest = matching.reduce((selected, event) => {
       if (!selected || event.media_time_ms > selected.media_time_ms) return event
-      if (event.media_time_ms === selected.media_time_ms && event.system_time > selected.system_time) {
+      if (
+        event.media_time_ms === selected.media_time_ms &&
+        event.system_time > selected.system_time
+      ) {
         return event
       }
       return selected

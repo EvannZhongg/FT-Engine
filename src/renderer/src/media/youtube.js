@@ -1,5 +1,3 @@
-export { normalizeYouTubeUrl } from '../../../shared/media/youtube.mts'
-
 let apiPromise = null
 
 export function loadYouTubeApi() {

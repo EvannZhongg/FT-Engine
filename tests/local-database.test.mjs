@@ -6,6 +6,8 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
+import { normalizeMediaUrl } from '../src/shared/media/normalize-media-url.mts'
+
 import {
   DATABASE_APPLICATION_ID,
   LATEST_SCHEMA_VERSION,
@@ -47,6 +49,31 @@ function createConfiguredCompetition(database) {
   return { ...competition, stageId: database.listStages(competition.id)[0].id }
 }
 
+function createTwoContestantCompetition(database) {
+  const competition = database.createCompetition({ name: 'Shared Media Event', mode: 'FREE' })
+  database.updateCompetition(competition.id, {
+    name: 'Shared Media Event',
+    mode: 'FREE',
+    groups: [
+      {
+        name: 'Final',
+        refCount: 1,
+        players: ['Alice', 'Bob'],
+        referees: [
+          {
+            index: 1,
+            name: 'Judge A',
+            mode: 'SINGLE',
+            primaryDeviceId: 'device-1',
+            secondaryDeviceId: ''
+          }
+        ]
+      }
+    ]
+  })
+  return { ...competition, stageId: database.listStages(competition.id)[0].id }
+}
+
 test.afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
@@ -70,6 +97,7 @@ test('creates the versioned local schema', () => {
       'match_sessions',
       'match_session_transitions',
       'score_events',
+      'media_binding_versions',
       'media_bindings',
       'app_settings',
       'share_drafts',
@@ -151,11 +179,29 @@ test('appends immutable score events idempotently', () => {
     assert.match(refereeId, /^[0-9a-f]{32}$/)
     assert.deepEqual(eventValue, {
       ...event,
+      mediaBindingVersionId: null,
       mediaProvider: '',
       mediaId: '',
+      mediaSegment: '',
       mediaTimeMs: null,
       mediaSyncStatus: 'not_ready'
     })
+    const raw = new DatabaseSync(database.databasePath)
+    try {
+      assert.throws(
+        () =>
+          raw
+            .prepare('UPDATE score_events SET current_total = ? WHERE event_id = ?')
+            .run(99, event.eventId),
+        /SCORE_EVENT_IMMUTABLE/
+      )
+      assert.throws(
+        () => raw.prepare('DELETE FROM score_events WHERE event_id = ?').run(event.eventId),
+        /SCORE_EVENT_IMMUTABLE/
+      )
+    } finally {
+      raw.close()
+    }
   } finally {
     database.close()
   }
@@ -208,6 +254,165 @@ test('rejects score events outside the configured competition graph', () => {
     )
     assert.equal(database.getCompetitionConfig(competition.id)?.groups[0].players.length, 1)
     assert.deepEqual(database.getScoreEvents(), [])
+  } finally {
+    database.close()
+  }
+})
+
+test('enforces one current binding per contestant while retaining revisions and sharing media', () => {
+  const { database, databasePath } = createDatabase()
+  database.open()
+  const competition = createTwoContestantCompetition(database)
+  const youtube = normalizeMediaUrl('https://youtu.be/dQw4w9WgXcQ')
+  const bilibili = normalizeMediaUrl('https://www.bilibili.com/video/BV1xx411c7mD?p=2')
+  try {
+    const aliceYoutube = database.replaceMediaBinding(
+      competition.id,
+      competition.stageId,
+      'Final',
+      'Alice',
+      youtube
+    )
+    assert.ok(aliceYoutube)
+    const repeated = database.replaceMediaBinding(
+      competition.id,
+      competition.stageId,
+      'Final',
+      'Alice',
+      youtube
+    )
+    assert.deepEqual(repeated, aliceYoutube)
+    const aliceBilibili = database.replaceMediaBinding(
+      competition.id,
+      competition.stageId,
+      'Final',
+      'Alice',
+      bilibili
+    )
+    assert.equal(aliceBilibili?.revision, 2)
+    assert.notEqual(aliceBilibili?.version_id, aliceYoutube?.version_id)
+
+    const bobBilibili = database.replaceMediaBinding(
+      competition.id,
+      competition.stageId,
+      'Final',
+      'Bob',
+      bilibili
+    )
+    assert.equal(bobBilibili?.revision, 1)
+    assert.notEqual(bobBilibili?.id, aliceBilibili?.id)
+    assert.equal(
+      database.getMediaBinding(competition.id, competition.stageId, 'Final', 'Alice')?.provider,
+      'bilibili'
+    )
+    assert.equal(
+      database.getMediaBinding(competition.id, competition.stageId, 'Final', 'Bob')?.provider,
+      'bilibili'
+    )
+
+    assert.throws(
+      () =>
+        database.appendMatchScoreEvent({
+          sourceKey: competition.id,
+          stageId: competition.stageId,
+          groupName: 'Final',
+          contestantName: 'Bob',
+          attemptNumber: 1,
+          refereeIndex: 1,
+          event: {
+            eventId: 'wrong-owner-event',
+            connectionId: 'judge-1-primary',
+            deviceId: 'device-1',
+            role: 'primary',
+            eventType: 1,
+            deviceTimestampMs: 1,
+            receivedAt: '2026-07-18T08:59:00.000Z',
+            systemTime: '2026-07-18T08:59:00.000Z',
+            totalPlus: 1,
+            totalMinus: 0,
+            currentTotal: 1,
+            majorPenalty: 0,
+            mediaBindingVersionId: aliceYoutube?.version_id,
+            mediaProvider: 'youtube',
+            mediaId: youtube.media_id,
+            mediaSegment: youtube.segment,
+            mediaTimeMs: 500,
+            mediaSyncStatus: 'aligned'
+          }
+        }),
+      /MEDIA_BINDING_VERSION_OWNER_MISMATCH/
+    )
+
+    const eventTime = '2026-07-18T09:00:00.000Z'
+    assert.deepEqual(
+      database.appendMatchScoreEvent({
+        sourceKey: competition.id,
+        stageId: competition.stageId,
+        groupName: 'Final',
+        contestantName: 'Alice',
+        attemptNumber: 1,
+        refereeIndex: 1,
+        event: {
+          eventId: 'alice-old-binding-event',
+          connectionId: 'judge-1-primary',
+          deviceId: 'device-1',
+          role: 'primary',
+          eventType: 1,
+          deviceTimestampMs: 1,
+          receivedAt: eventTime,
+          systemTime: eventTime,
+          totalPlus: 1,
+          totalMinus: 0,
+          currentTotal: 1,
+          majorPenalty: 0,
+          mediaBindingVersionId: aliceYoutube?.version_id,
+          mediaProvider: 'youtube',
+          mediaId: youtube.media_id,
+          mediaSegment: youtube.segment,
+          mediaTimeMs: 1000,
+          mediaSyncStatus: 'aligned'
+        }
+      }),
+      { status: 'inserted' }
+    )
+    assert.equal(
+      database.removeMediaBinding(competition.id, competition.stageId, 'Final', 'Alice'),
+      true
+    )
+    const replay = database.getReplay(competition.id, 'Final', 'Alice')
+    assert.equal(replay?.binding, null)
+    assert.deepEqual(
+      replay?.binding_versions.map((version) => version.version_id || version.id),
+      [aliceYoutube?.version_id]
+    )
+    assert.equal(replay?.events[0]?.media_binding_version_id, aliceYoutube?.version_id)
+
+    const raw = new DatabaseSync(databasePath)
+    try {
+      assert.throws(
+        () =>
+          raw
+            .prepare('UPDATE media_binding_versions SET canonical_url = ? WHERE id = ?')
+            .run('https://example.com', aliceYoutube?.version_id),
+        /MEDIA_BINDING_VERSION_IMMUTABLE/
+      )
+      assert.throws(
+        () =>
+          raw
+            .prepare('UPDATE media_bindings SET current_version_id = ? WHERE id = ?')
+            .run(aliceYoutube?.version_id, bobBilibili?.id),
+        /MEDIA_BINDING_VERSION_OWNER_MISMATCH/
+      )
+      assert.throws(
+        () =>
+          raw
+            .prepare('DELETE FROM media_binding_versions WHERE id = ?')
+            .run(aliceYoutube?.version_id),
+        /MEDIA_BINDING_VERSION_IMMUTABLE/
+      )
+    } finally {
+      raw.close()
+    }
   } finally {
     database.close()
   }

@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
+import type { MediaBinding, ParsedMediaUrl } from '../../../shared/media/media-contract.mts'
 import { resolveStageContestant } from '../sqlite/competition-context.mts'
 import { stableDatabaseId } from '../sqlite/ids.mts'
 import type { SqliteConnection } from '../sqlite/connection.mts'
@@ -20,6 +22,8 @@ export interface StoredScoreEvent {
   majorPenalty: number
   mediaProvider?: string
   mediaId?: string
+  mediaSegment?: string
+  mediaBindingVersionId?: string | null
   mediaTimeMs?: number | null
   mediaSyncStatus?: string
 }
@@ -121,12 +125,107 @@ export class MatchRepository {
     }
   }
 
-  upsertMediaBinding(
+  replaceMediaBinding(
     sourceKey: string,
     stageId: string,
     groupName: string,
     contestantName: string,
-    binding: { provider: string; mediaId: string; canonicalUrl: string }
+    binding: ParsedMediaUrl
+  ): MediaBinding | null {
+    const database = this.connection.requireDatabase()
+    const contestant = resolveStageContestant(
+      database,
+      sourceKey,
+      stageId,
+      groupName,
+      contestantName
+    )
+    if (!contestant) return null
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      const current = this.getMediaBindingByContestant(database, contestant.id)
+      if (
+        current?.provider === binding.provider &&
+        current.media_id === binding.media_id &&
+        current.segment === binding.segment &&
+        current.canonical_url === binding.canonical_url
+      ) {
+        database.exec('COMMIT')
+        return current
+      }
+      const latest = database
+        .prepare(
+          'SELECT COALESCE(MAX(revision), 0) AS revision FROM media_binding_versions WHERE contestant_id = ?'
+        )
+        .get(contestant.id) as { revision: number }
+      const versionId = randomUUID()
+      const revision = Number(latest.revision) + 1
+      const now = new Date().toISOString()
+      database
+        .prepare(
+          `INSERT INTO media_binding_versions (
+            id, contestant_id, revision, provider, media_id, segment, canonical_url, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          versionId,
+          contestant.id,
+          revision,
+          binding.provider,
+          binding.media_id,
+          binding.segment,
+          binding.canonical_url,
+          now
+        )
+      database
+        .prepare(
+          `INSERT INTO media_bindings (id, contestant_id, current_version_id, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(contestant_id) DO UPDATE SET
+             current_version_id = excluded.current_version_id,
+             updated_at = excluded.updated_at`
+        )
+        .run(stableDatabaseId(sourceKey, contestant.id, 'media'), contestant.id, versionId, now)
+      database.exec('COMMIT')
+      return {
+        id: stableDatabaseId(sourceKey, contestant.id, 'media'),
+        contestant_id: contestant.id,
+        version_id: versionId,
+        revision,
+        provider: binding.provider,
+        media_id: binding.media_id,
+        segment: binding.segment,
+        canonical_url: binding.canonical_url,
+        updated_at: now
+      }
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  getMediaBinding(
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    contestantName: string
+  ): MediaBinding | null {
+    const database = this.connection.requireDatabase()
+    const contestant = resolveStageContestant(
+      database,
+      sourceKey,
+      stageId,
+      groupName,
+      contestantName
+    )
+    return contestant ? this.getMediaBindingByContestant(database, contestant.id) : null
+  }
+
+  removeMediaBinding(
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    contestantName: string
   ): boolean {
     const database = this.connection.requireDatabase()
     const contestant = resolveStageContestant(
@@ -137,23 +236,7 @@ export class MatchRepository {
       contestantName
     )
     if (!contestant) return false
-    database
-      .prepare(
-        `
-      INSERT INTO media_bindings (id, contestant_id, provider, media_id, canonical_url)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(contestant_id, provider) DO UPDATE SET
-        media_id = excluded.media_id,
-        canonical_url = excluded.canonical_url
-    `
-      )
-      .run(
-        stableDatabaseId(sourceKey, contestant.id, 'media', binding.provider),
-        contestant.id,
-        binding.provider,
-        binding.mediaId,
-        binding.canonicalUrl
-      )
+    database.prepare('DELETE FROM media_bindings WHERE contestant_id = ?').run(contestant.id)
     return true
   }
 
@@ -179,6 +262,9 @@ export class MatchRepository {
       majorPenalty: Number(row.major_penalty),
       mediaProvider: String(row.media_provider),
       mediaId: String(row.media_id),
+      mediaSegment: String(row.media_segment),
+      mediaBindingVersionId:
+        row.media_binding_version_id === null ? null : String(row.media_binding_version_id),
       mediaTimeMs: row.media_time_ms === null ? null : Number(row.media_time_ms),
       mediaSyncStatus: String(row.media_sync_status)
     }))
@@ -246,15 +332,19 @@ export class MatchRepository {
   private insertScoreEvent(database: DatabaseSync, event: StoredScoreEvent): boolean {
     validateScoreEvent(event)
     if (!event.matchSessionId || !event.refereeId) throw new Error('MATCH_CONTEXT_INVALID')
+    const existing = database
+      .prepare('SELECT 1 FROM score_events WHERE event_id = ?')
+      .get(event.eventId)
+    if (existing) return false
     const result = database
       .prepare(
         `
-      INSERT OR IGNORE INTO score_events (
+      INSERT INTO score_events (
         event_id, match_session_id, referee_id, connection_id, device_id, role,
         event_type, device_timestamp_ms, received_at, system_time, total_plus,
-        total_minus, current_total, major_penalty, media_provider, media_id,
-        media_time_ms, media_sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        total_minus, current_total, major_penalty, media_binding_version_id,
+        media_provider, media_id, media_segment, media_time_ms, media_sync_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -272,16 +362,52 @@ export class MatchRepository {
         event.totalMinus,
         event.currentTotal,
         event.majorPenalty,
+        event.mediaBindingVersionId ?? null,
         event.mediaProvider ?? '',
         event.mediaId ?? '',
+        event.mediaSegment ?? '',
         event.mediaTimeMs ?? null,
         event.mediaSyncStatus ?? 'not_ready'
       )
     return Number(result.changes) === 1
   }
+
+  private getMediaBindingByContestant(
+    database: DatabaseSync,
+    contestantId: string
+  ): MediaBinding | null {
+    const row = database
+      .prepare(
+        `SELECT mb.id, mb.contestant_id, mb.current_version_id, mb.updated_at,
+          mv.revision, mv.provider, mv.media_id, mv.segment, mv.canonical_url
+         FROM media_bindings mb
+         JOIN media_binding_versions mv ON mv.id = mb.current_version_id
+         WHERE mb.contestant_id = ?`
+      )
+      .get(contestantId) as Record<string, string | number> | undefined
+    return row
+      ? {
+          id: String(row.id),
+          contestant_id: String(row.contestant_id),
+          version_id: String(row.current_version_id),
+          revision: Number(row.revision),
+          provider: row.provider === 'bilibili' ? 'bilibili' : 'youtube',
+          media_id: String(row.media_id),
+          segment: String(row.segment),
+          canonical_url: String(row.canonical_url),
+          updated_at: String(row.updated_at)
+        }
+      : null
+  }
 }
 
 function validateScoreEvent(event: StoredScoreEvent): void {
+  const mediaStatus = event.mediaSyncStatus ?? 'not_ready'
+  const mediaProvider = event.mediaProvider ?? ''
+  const mediaId = event.mediaId ?? ''
+  const mediaSegment = event.mediaSegment ?? ''
+  const bindingVersionId = event.mediaBindingVersionId ?? null
+  const mediaTimeMs = event.mediaTimeMs ?? null
   if (
     !event ||
     typeof event.eventId !== 'string' ||
@@ -303,7 +429,22 @@ function validateScoreEvent(event: StoredScoreEvent): void {
     !Number.isSafeInteger(event.totalMinus) ||
     event.totalMinus < 0 ||
     !Number.isSafeInteger(event.currentTotal) ||
-    !Number.isSafeInteger(event.majorPenalty)
+    !Number.isSafeInteger(event.majorPenalty) ||
+    !['not_ready', 'aligned', 'stale', 'context_mismatch', 'unsupported', 'error'].includes(
+      mediaStatus
+    ) ||
+    !['', 'youtube', 'bilibili'].includes(mediaProvider) ||
+    typeof mediaId !== 'string' ||
+    mediaId.length > 256 ||
+    typeof mediaSegment !== 'string' ||
+    mediaSegment.length > 64 ||
+    (bindingVersionId !== null &&
+      (typeof bindingVersionId !== 'string' ||
+        !bindingVersionId ||
+        bindingVersionId.length > 256)) ||
+    (mediaTimeMs !== null && (!Number.isSafeInteger(mediaTimeMs) || mediaTimeMs < 0)) ||
+    (mediaStatus === 'aligned' &&
+      (!bindingVersionId || !mediaProvider || !mediaId || mediaTimeMs === null))
   ) {
     throw new Error('Invalid score event')
   }

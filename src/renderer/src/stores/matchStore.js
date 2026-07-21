@@ -22,6 +22,7 @@ export const useMatchStore = defineStore('match', {
     matchActive: false,
     matchStatus: initialMatchStatus(),
     currentContext: { groupName: '', contestantName: '' },
+    activePlayback: null,
     scoredPlayers: new Set()
   }),
 
@@ -29,6 +30,7 @@ export const useMatchStore = defineStore('match', {
     clearLocalState() {
       this.referees = {}
       this.currentContext = { groupName: '', contestantName: '' }
+      this.activePlayback = null
       this.scoredPlayers = new Set()
     },
 
@@ -47,12 +49,29 @@ export const useMatchStore = defineStore('match', {
       }
     },
 
-    async setMatchContext(groupName, contestantName) {
-      if (this.matchActive) {
-        if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
-        await window.ftEngine.match.setContext(groupName, contestantName)
-      }
-      this.currentContext = { groupName, contestantName }
+    async transitionMatchContext(groupName, contestantName, binding, progressMode = 'reset') {
+      if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
+      const result = await window.ftEngine.match.transitionContext({
+        group_name: groupName,
+        contestant_name: contestantName,
+        binding_version_id: binding?.version_id || null,
+        progress_mode: progressMode,
+        expected_media_key: binding
+          ? `${binding.provider}:${binding.media_id}:${binding.segment}`
+          : null
+      })
+      this.currentContext = { groupName: result.group_name, contestantName: result.contestant_name }
+      this.activePlayback =
+        result.binding && result.playback_session_id
+          ? {
+              playback_session_id: result.playback_session_id,
+              binding_version_id: result.binding.version_id,
+              binding: result.binding,
+              progress_mode: result.progress_mode,
+              continuity_position_ms: result.continuity_position_ms
+            }
+          : null
+      return result
     },
 
     async startMatch(config) {
@@ -181,9 +200,19 @@ export const useMatchStore = defineStore('match', {
       matchListenersConnected = false
     },
 
+    async parseMediaUrl(url) {
+      if (!window.ftEngine?.media) throw new Error('LOCAL_MEDIA_UNAVAILABLE')
+      return window.ftEngine.media.parseUrl(url)
+    },
+
+    async getMediaBinding(groupName, contestantName) {
+      if (!window.ftEngine?.media) throw new Error('LOCAL_MEDIA_UNAVAILABLE')
+      return window.ftEngine.media.getBinding(groupName, contestantName)
+    },
+
     async saveMediaBinding(groupName, contestantName, url) {
-      if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
-      const binding = await window.ftEngine.match.setMediaBinding(groupName, contestantName, url)
+      if (!window.ftEngine?.media) throw new Error('LOCAL_MEDIA_UNAVAILABLE')
+      const binding = await window.ftEngine.media.replaceBinding(groupName, contestantName, url)
       const competitionStore = useCompetitionStore()
       if (!competitionStore.projectConfig.media) competitionStore.projectConfig.media = {}
       if (!competitionStore.projectConfig.media[groupName]) {
@@ -193,12 +222,52 @@ export const useMatchStore = defineStore('match', {
       return binding
     },
 
+    async removeMediaBinding(groupName, contestantName) {
+      if (!window.ftEngine?.media) throw new Error('LOCAL_MEDIA_UNAVAILABLE')
+      await window.ftEngine.media.removeBinding(groupName, contestantName)
+      const competitionStore = useCompetitionStore()
+      delete competitionStore.projectConfig.media?.[groupName]?.[contestantName]
+      if (
+        this.currentContext.groupName === groupName &&
+        this.currentContext.contestantName === contestantName
+      ) {
+        this.activePlayback = null
+      }
+    },
+
+    async beginMediaPlayback(binding) {
+      if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
+      const playback = await window.ftEngine.match.beginPlayback(binding.version_id)
+      this.activePlayback = {
+        ...playback,
+        progress_mode: 'reset',
+        continuity_position_ms: null
+      }
+      return this.activePlayback
+    },
+
     async syncMediaPlayback(playback) {
       try {
         if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
-        await window.ftEngine.match.syncPlayback(playback)
+        return await window.ftEngine.match.syncPlayback(playback)
       } catch (error) {
         console.debug('Playback sync failed', error)
+        return null
+      }
+    },
+
+    async reportMediaPlayerError(error) {
+      const playback = this.activePlayback
+      if (!playback || !window.ftEngine?.match) return null
+      try {
+        return await window.ftEngine.match.reportMediaError({
+          playback_session_id: playback.playback_session_id,
+          binding_version_id: playback.binding_version_id,
+          code: String(error?.code || 'MEDIA_PLAYER_UNAVAILABLE')
+        })
+      } catch (reportError) {
+        console.debug('Playback error report was rejected', reportError)
+        return null
       }
     },
 

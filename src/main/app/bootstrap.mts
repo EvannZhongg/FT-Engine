@@ -102,12 +102,11 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
       localData.requireDatabase().invalidateMatchSession(context, occurredAt)
     },
     validateContext: (...args) => localData.getDatabase()?.hasMatchContext(...args) ?? false,
-    upsertMediaBinding: (...args) =>
-      localData.getDatabase()?.upsertMediaBinding(...args) ?? false,
-    emitRefereeUpdate: (update) =>
-      sendMatchEvent(IPC_CHANNELS.match.refereeUpdated, update),
-    emitContextUpdate: (context) =>
-      sendMatchEvent(IPC_CHANNELS.match.contextUpdated, context),
+    replaceMediaBinding: (...args) => localData.getDatabase()?.replaceMediaBinding(...args) ?? null,
+    getMediaBinding: (...args) => localData.getDatabase()?.getMediaBinding(...args) ?? null,
+    removeMediaBinding: (...args) => localData.getDatabase()?.removeMediaBinding(...args) ?? false,
+    emitRefereeUpdate: (update) => sendMatchEvent(IPC_CHANNELS.match.refereeUpdated, update),
+    emitContextUpdate: (context) => sendMatchEvent(IPC_CHANNELS.match.contextUpdated, context),
     emitStatusUpdate: (status) => sendMatchEvent(IPC_CHANNELS.match.statusUpdated, status),
     onError: (code, error) => {
       console.error('[Electron] Match session error:', code, error || '')
@@ -143,8 +142,7 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
 
   const competitionService = new CompetitionService({
     create: (input) => localData.requireDatabase().createCompetition(input),
-    update: (sourceKey, input) =>
-      localData.requireDatabase().updateCompetition(sourceKey, input),
+    update: (sourceKey, input) => localData.requireDatabase().updateCompetition(sourceKey, input),
     get: (sourceKey) => localData.requireDatabase().getCompetitionConfig(sourceKey),
     list: () => localData.requireDatabase().listCompetitionProjects(),
     delete: (sourceKey) => localData.requireDatabase().deleteCompetition(sourceKey)
@@ -152,8 +150,7 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
 
   const stageService = new StageService({
     list: (competitionId) => localData.requireDatabase().listStages(competitionId),
-    create: (competitionId, input) =>
-      localData.requireDatabase().createStage(competitionId, input),
+    create: (competitionId, input) => localData.requireDatabase().createStage(competitionId, input),
     update: (stageId, input) => localData.requireDatabase().updateStage(stageId, input),
     reorder: (competitionId, stageIds) =>
       localData.requireDatabase().reorderStages(competitionId, stageIds),

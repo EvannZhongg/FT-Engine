@@ -14,6 +14,12 @@ export interface ExportScoreEvent {
   totalMinus: number
   currentTotal: number
   majorPenalty: number
+  mediaBindingVersionId: string | null
+  mediaProvider: string
+  mediaId: string
+  mediaSegment: string
+  mediaTimeMs: number | null
+  mediaSyncStatus: string
 }
 
 export interface ExportRefereeEvents {
@@ -99,8 +105,29 @@ export class ExportService {
             )
           }
           if (normalized.includeSrt) {
-            files[`${groupPath}/${contestantPath}/Ref${referee.index}_${normalized.srtMode}.srt`] =
-              strToU8(buildSrt(referee.events, normalized.srtMode))
+            const alignedEvents = referee.events.filter(
+              (event) => event.mediaSyncStatus === 'aligned' && event.mediaTimeMs != null
+            )
+            const versions = new Map<string, ExportScoreEvent[]>()
+            for (const event of alignedEvents) {
+              const version =
+                event.mediaBindingVersionId ||
+                `${event.mediaProvider}:${event.mediaId}:${event.mediaSegment}`
+              const values = versions.get(version) || []
+              values.push(event)
+              versions.set(version, values)
+            }
+            if (versions.size <= 1) {
+              files[
+                `${groupPath}/${contestantPath}/Ref${referee.index}_${normalized.srtMode}.srt`
+              ] = strToU8(buildSrt(alignedEvents, normalized.srtMode))
+            } else {
+              for (const [version, versionEvents] of versions) {
+                files[
+                  `${groupPath}/${contestantPath}/Ref${referee.index}_${normalized.srtMode}_${sanitizeFileSegment(version, 'Version')}.srt`
+                ] = strToU8(buildSrt(versionEvents, normalized.srtMode))
+              }
+            }
           }
         }
       }
@@ -155,7 +182,19 @@ export function buildLogCsv(events: ExportScoreEvent[]): string {
   const normalized = normalizeEvents(events)
   const baseMs = parseSystemTime(normalized[0].systemTime)
   const rows: Array<Array<string | number>> = [
-    ['Timestamp', 'Plus', 'Minus', 'Total', 'MajorPenalty']
+    [
+      'Timestamp',
+      'Plus',
+      'Minus',
+      'Total',
+      'MajorPenalty',
+      'media_binding_version_id',
+      'media_provider',
+      'media_id',
+      'media_segment',
+      'media_time_ms',
+      'media_sync_status'
+    ]
   ]
   for (const event of normalized) {
     const relativeSeconds = (parseSystemTime(event.systemTime) - baseMs) / 1000
@@ -164,7 +203,13 @@ export function buildLogCsv(events: ExportScoreEvent[]): string {
       event.totalPlus,
       event.totalMinus,
       event.currentTotal,
-      event.majorPenalty
+      event.majorPenalty,
+      event.mediaBindingVersionId || '',
+      event.mediaProvider || '',
+      event.mediaId || '',
+      event.mediaSegment || '',
+      event.mediaTimeMs ?? '',
+      event.mediaSyncStatus || 'not_ready'
     ])
   }
   return rows.map(csvRow).join('\n')
@@ -172,10 +217,12 @@ export function buildLogCsv(events: ExportScoreEvent[]): string {
 
 export function buildSrt(events: ExportScoreEvent[], mode: ExportSrtMode): string {
   const normalized = normalizeEvents(events)
+    .filter((event) => event.mediaSyncStatus === 'aligned' && event.mediaTimeMs != null)
+    .sort((left, right) => mediaTimelineMs(left) - mediaTimelineMs(right))
+  if (normalized.length === 0) return ''
   if (mode !== 'TOTAL' && mode !== 'SPLIT' && mode !== 'REALTIME') {
     throw new ExportServiceError('EXPORT_REQUEST_INVALID')
   }
-  const baseMs = parseSystemTime(normalized[0].systemTime)
   const entries =
     mode === 'REALTIME'
       ? buildRealtimeSrtEntries(normalized)
@@ -184,7 +231,7 @@ export function buildSrt(events: ExportScoreEvent[], mode: ExportSrtMode): strin
     .filter((entry) => entry.text)
     .map(
       (entry, index) =>
-        `${index + 1}\n${formatSrtTime(entry.startMs - baseMs)} --> ${formatSrtTime(entry.endMs - baseMs)}\n${entry.text}\n`
+        `${index + 1}\n${formatSrtTime(entry.startMs)} --> ${formatSrtTime(entry.endMs)}\n${entry.text}\n`
     )
     .join('\n')
 }
@@ -310,7 +357,7 @@ function buildStateSrtEntries(
   const entries: SrtEntry[] = []
   let previous: number | string | null = null
   for (const event of events) {
-    const timestamp = parseSystemTime(event.systemTime)
+    const timestamp = mediaTimelineMs(event)
     const comparison =
       mode === 'TOTAL' ? event.currentTotal : `${event.totalPlus}:${event.totalMinus}`
     if (comparison === previous) continue
@@ -343,7 +390,7 @@ function buildRealtimeSrtEntries(events: ExportScoreEvent[]): SrtEntry[] {
     const minus = event.totalMinus - previous.minus
     previous = { plus: event.totalPlus, minus: event.totalMinus }
     if (plus === 0 && minus === 0) continue
-    const timestamp = parseSystemTime(event.systemTime)
+    const timestamp = mediaTimelineMs(event)
     const current = bursts.at(-1)
     if (current && timestamp - current.lastMs < 300) {
       current.plus += plus
@@ -543,6 +590,13 @@ function parseSystemTime(value: string): number {
   const parsed = Date.parse(value)
   if (!Number.isFinite(parsed)) throw new ExportServiceError('EXPORT_DATA_INVALID')
   return parsed
+}
+
+function mediaTimelineMs(event: ExportScoreEvent): number {
+  if (event.mediaSyncStatus === 'aligned' && event.mediaTimeMs != null) {
+    return event.mediaTimeMs
+  }
+  return parseSystemTime(event.systemTime)
 }
 
 function formatSrtTime(relativeMs: number): string {

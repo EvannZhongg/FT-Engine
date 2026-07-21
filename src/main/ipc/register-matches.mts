@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC_CHANNELS, type MatchStopResult } from '../../shared/ipc-contract'
 import type { CompetitionService } from '../application/competitions/competition-service.mts'
+import { resolveAndNormalizeMediaUrl } from '../../shared/media/normalize-media-url.mts'
 import type { MatchSessionService, MatchStartInput } from '../match/match-session.mts'
 import { requireDatabase, type IpcRegistrationContext } from './context.mts'
 
@@ -19,9 +20,14 @@ export function registerMatchIpc(
     return matchSession.start(input as MatchStartInput)
   })
 
-  ipcMain.handle(IPC_CHANNELS.match.setContext, async (event, groupName, contestantName) => {
+  ipcMain.handle(IPC_CHANNELS.match.transitionContext, async (event, input) => {
     context.assertMainSender(event)
-    return matchSession.setContext(groupName, contestantName)
+    return matchSession.transitionContext(input)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.beginPlayback, (event, bindingVersionId) => {
+    context.assertMainSender(event)
+    return matchSession.beginPlayback(bindingVersionId)
   })
 
   ipcMain.handle(IPC_CHANNELS.match.getStatus, (event) => {
@@ -34,12 +40,36 @@ export function registerMatchIpc(
     if (!playback || typeof playback !== 'object' || Array.isArray(playback)) {
       throw new Error('IPC_INVALID_MATCH_PLAYBACK')
     }
-    matchSession.updatePlayback(playback)
+    return matchSession.updatePlayback(playback)
   })
 
-  ipcMain.handle(IPC_CHANNELS.match.setMediaBinding, (event, groupName, contestantName, url) => {
+  ipcMain.handle(IPC_CHANNELS.match.mediaError, (event, input) => {
     context.assertMainSender(event)
-    return matchSession.setMediaBinding(groupName, contestantName, url)
+    return matchSession.reportMediaError(input)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.media.parseUrl, async (event, url) => {
+    context.assertMainSender(event)
+    return resolveAndNormalizeMediaUrl(url)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.media.getBinding, (event, groupName, contestantName) => {
+    context.assertMainSender(event)
+    return matchSession.getMediaBinding(groupName, contestantName)
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.media.replaceBinding,
+    async (event, groupName, contestantName, url) => {
+      context.assertMainSender(event)
+      const parsed = await resolveAndNormalizeMediaUrl(url)
+      return matchSession.replaceMediaBinding(groupName, contestantName, parsed)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.media.removeBinding, (event, groupName, contestantName) => {
+    context.assertMainSender(event)
+    return matchSession.removeMediaBinding(groupName, contestantName)
   })
 
   ipcMain.handle(

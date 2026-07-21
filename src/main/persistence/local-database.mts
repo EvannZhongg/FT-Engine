@@ -6,6 +6,11 @@ import type { CompetitionExportSnapshot } from '../application/exports/export-se
 import type { AppSettings } from '../application/settings/app-settings.mts'
 import type { CompetitionConfig, CompetitionListItem } from '../../shared/contracts/competition.mts'
 import type { CompetitionStageConfig, StageConfigInput } from '../../shared/contracts/stage.mts'
+import type {
+  MediaBinding,
+  MediaBindingVersion,
+  ParsedMediaUrl
+} from '../../shared/media/media-contract.mts'
 import { ExportQuery } from './queries/export-query.mts'
 import { ReplayQuery, type ReplayEvent } from './queries/replay-query.mts'
 import { ReportQuery, type CompetitionReport } from './queries/report-query.mts'
@@ -190,14 +195,32 @@ export class LocalDatabase {
     this.matchProgress.invalidate(context, occurredAt)
   }
 
-  upsertMediaBinding(
+  replaceMediaBinding(
     sourceKey: string,
     stageId: string,
     groupName: string,
     contestantName: string,
-    binding: { provider: string; mediaId: string; canonicalUrl: string }
+    binding: ParsedMediaUrl
+  ): MediaBinding | null {
+    return this.matches.replaceMediaBinding(sourceKey, stageId, groupName, contestantName, binding)
+  }
+
+  getMediaBinding(
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    contestantName: string
+  ): MediaBinding | null {
+    return this.matches.getMediaBinding(sourceKey, stageId, groupName, contestantName)
+  }
+
+  removeMediaBinding(
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    contestantName: string
   ): boolean {
-    return this.matches.upsertMediaBinding(sourceKey, stageId, groupName, contestantName, binding)
+    return this.matches.removeMediaBinding(sourceKey, stageId, groupName, contestantName)
   }
 
   listScoredContestants(
@@ -215,7 +238,8 @@ export class LocalDatabase {
     contestantName: string
   ): {
     status: 'ok'
-    binding: { provider: string; video_id: string; canonical_url: string } | null
+    binding: MediaBinding | null
+    binding_versions: MediaBindingVersion[]
     events: ReplayEvent[]
   } | null {
     return this.replay.get(sourceKey, groupName, contestantName)

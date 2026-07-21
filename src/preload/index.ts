@@ -37,9 +37,10 @@ const IPC_CHANNELS = {
   match: {
     start: 'match:start',
     getStatus: 'match:get-status',
-    setContext: 'match:set-context',
+    transitionContext: 'match:transition-context',
+    beginPlayback: 'match:begin-playback',
     syncPlayback: 'match:sync-playback',
-    setMediaBinding: 'match:set-media-binding',
+    mediaError: 'match:media-error',
     listScored: 'match:list-scored',
     reset: 'match:reset',
     stop: 'match:stop',
@@ -47,6 +48,12 @@ const IPC_CHANNELS = {
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
     statusUpdated: 'match:status-updated'
+  },
+  media: {
+    parseUrl: 'media:parse-url',
+    getBinding: 'media:get-binding',
+    replaceBinding: 'media:replace-binding',
+    removeBinding: 'media:remove-binding'
   },
   replay: {
     get: 'replay:get'
@@ -126,11 +133,11 @@ const ftEngine = {
   match: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.match.start, input),
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.match.getStatus),
-    setContext: (groupName, contestantName) =>
-      ipcRenderer.invoke(IPC_CHANNELS.match.setContext, groupName, contestantName),
+    transitionContext: (input) => ipcRenderer.invoke(IPC_CHANNELS.match.transitionContext, input),
+    beginPlayback: (bindingVersionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.match.beginPlayback, bindingVersionId),
     syncPlayback: (playback) => ipcRenderer.invoke(IPC_CHANNELS.match.syncPlayback, playback),
-    setMediaBinding: (groupName, contestantName, url) =>
-      ipcRenderer.invoke(IPC_CHANNELS.match.setMediaBinding, groupName, contestantName, url),
+    reportMediaError: (input) => ipcRenderer.invoke(IPC_CHANNELS.match.mediaError, input),
     listScored: (sourceKey, stageId, groupName, attemptNumber) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.match.listScored,
@@ -145,6 +152,15 @@ const ftEngine = {
     onRefereeUpdated: (callback) => subscribe(IPC_CHANNELS.match.refereeUpdated, callback),
     onContextUpdated: (callback) => subscribe(IPC_CHANNELS.match.contextUpdated, callback),
     onStatusUpdated: (callback) => subscribe(IPC_CHANNELS.match.statusUpdated, callback)
+  },
+  media: {
+    parseUrl: (url) => ipcRenderer.invoke(IPC_CHANNELS.media.parseUrl, url),
+    getBinding: (groupName, contestantName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.media.getBinding, groupName, contestantName),
+    replaceBinding: (groupName, contestantName, url) =>
+      ipcRenderer.invoke(IPC_CHANNELS.media.replaceBinding, groupName, contestantName, url),
+    removeBinding: (groupName, contestantName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.media.removeBinding, groupName, contestantName)
   },
   replay: {
     get: (sourceKey, groupName, contestantName) =>

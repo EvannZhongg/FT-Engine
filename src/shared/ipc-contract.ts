@@ -1,4 +1,11 @@
-import type { YouTubeMediaBinding } from './media/youtube.mts'
+import type {
+  ContextTransitionInput,
+  ContextTransitionResult,
+  MediaBinding,
+  MediaBindingVersion,
+  MediaPlaybackSnapshot,
+  ParsedMediaUrl
+} from './media/media-contract.mts'
 import type {
   CompetitionConfig,
   CompetitionGroupConfig,
@@ -46,9 +53,10 @@ export const IPC_CHANNELS = {
   match: {
     start: 'match:start',
     getStatus: 'match:get-status',
-    setContext: 'match:set-context',
+    transitionContext: 'match:transition-context',
+    beginPlayback: 'match:begin-playback',
     syncPlayback: 'match:sync-playback',
-    setMediaBinding: 'match:set-media-binding',
+    mediaError: 'match:media-error',
     listScored: 'match:list-scored',
     reset: 'match:reset',
     stop: 'match:stop',
@@ -56,6 +64,12 @@ export const IPC_CHANNELS = {
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
     statusUpdated: 'match:status-updated'
+  },
+  media: {
+    parseUrl: 'media:parse-url',
+    getBinding: 'media:get-binding',
+    replaceBinding: 'media:replace-binding',
+    removeBinding: 'media:remove-binding'
   },
   replay: {
     get: 'replay:get'
@@ -214,7 +228,7 @@ export interface MatchStatusUpdate {
   state: 'idle' | 'starting' | 'active' | 'stopping' | 'completed' | 'failed'
   persistence: 'idle' | 'saving' | 'saved' | 'error'
   worker: 'idle' | 'ready' | 'reconnecting' | 'error'
-  media: 'not_ready' | 'aligned' | 'stale' | 'context_mismatch'
+  media: 'not_ready' | 'aligned' | 'stale' | 'context_mismatch' | 'unsupported' | 'error'
   errorCode: string | null
   lastSavedAt: string | null
 }
@@ -236,17 +250,16 @@ export interface ReplayEvent {
   current_total: number
   media_provider: string
   media_id: string
+  media_segment: string
+  media_binding_version_id: string | null
   media_time_ms: number | null
   media_sync_status: string
 }
 
 export interface ReplayResult {
   status: 'ok'
-  binding: {
-    provider: string
-    video_id: string
-    canonical_url: string
-  } | null
+  binding: MediaBinding | null
+  binding_versions: MediaBindingVersion[]
   events: ReplayEvent[]
 }
 
@@ -324,13 +337,18 @@ export interface FtEngineApi {
       status: MatchStatusUpdate
     }>
     getStatus: () => Promise<MatchStatusUpdate>
-    setContext: (groupName: string, contestantName: string) => Promise<void>
-    syncPlayback: (playback: Record<string, unknown>) => Promise<void>
-    setMediaBinding: (
-      groupName: string,
-      contestantName: string,
-      url: string
-    ) => Promise<YouTubeMediaBinding>
+    transitionContext: (input: ContextTransitionInput) => Promise<ContextTransitionResult>
+    beginPlayback: (bindingVersionId: string) => Promise<{
+      playback_session_id: string
+      binding_version_id: string
+      binding: MediaBinding
+    }>
+    syncPlayback: (playback: MediaPlaybackSnapshot) => Promise<MatchStatusUpdate['media']>
+    reportMediaError: (input: {
+      playback_session_id: string
+      binding_version_id: string
+      code: string
+    }) => Promise<MatchStatusUpdate['media']>
     listScored: (
       sourceKey: string,
       stageId: string,
@@ -345,6 +363,16 @@ export interface FtEngineApi {
       callback: (context: { groupName: string; contestantName: string }) => void
     ) => Unsubscribe
     onStatusUpdated: (callback: (status: MatchStatusUpdate) => void) => Unsubscribe
+  }
+  media: {
+    parseUrl: (url: string) => Promise<ParsedMediaUrl>
+    getBinding: (groupName: string, contestantName: string) => Promise<MediaBinding | null>
+    replaceBinding: (
+      groupName: string,
+      contestantName: string,
+      url: string
+    ) => Promise<MediaBinding>
+    removeBinding: (groupName: string, contestantName: string) => Promise<void>
   }
   replay: {
     get: (
