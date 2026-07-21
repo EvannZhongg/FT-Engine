@@ -18,6 +18,6 @@
 
 ## 验收重点
 
-发布前应覆盖：全新数据库初始化与恢复、BLE/USB 扫描和重连、多显示器 Overlay、YouTube 复盘、CSV/SRT/ZIP 导出、权限拒绝和应用退出清理。
+发布前应覆盖：全新数据库初始化与恢复、BLE/USB 扫描和重连、多显示器 Overlay、YouTube/Bilibili 媒体复盘、CSV/SRT/ZIP 导出、权限拒绝和应用退出清理。Bilibili 完整时间同步必须遵守媒体重构文档中的能力分级和三平台实机验收。
 
-具体平台约束见 [Windows 与 macOS 平台适配规范](./PLATFORM_ADAPTATION_zh.md)，服务端边界见 [Django 用户服务目标](./BACKEND_DJANGO_zh.md)。
+具体平台约束见 [Windows 与 macOS 平台适配规范](./PLATFORM_ADAPTATION_zh.md)，视频链接、单选手单绑定与评分时间同步见 [视频解析、绑定与评分时间同步重构](./MEDIA_PARSING_REFACTOR_zh.md)，服务端边界见 [Django 用户服务目标](./BACKEND_DJANGO_zh.md)。
