@@ -40,4 +40,6 @@ esp32.c
 *.log*
 
 esp32.c
-.docs
+docs/*
+!docs/
+!docs/DEVICE_PROTOCOL_zh.md
